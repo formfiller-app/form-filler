@@ -456,6 +456,7 @@ The Mac app, on a Mac with Xcode's command line tools and Rust 1.90 or later (th
 npm run mac:build                 # the page, then the app: src-tauri/target/release/bundle/macos/Form Filler.app
 npm run mac:test                  # the app's Rust tests
 npm run mac:check                 # a test build ("Form Filler Test"), then its checks inside its own window
+npm run mac:try                   # that test build opened for you to try, with nothing of yours in it
 npm run mac:dev                   # the app over Vite's server, redrawn as the page's code changes
 ```
 
@@ -463,7 +464,9 @@ npm run mac:dev                   # the app over Vite's server, redrawn as the p
 (cargo downloads and builds Tauri once). Open the app from Finder, or drag it to Applications. `mac:check` uses a
 temporary folder in place of the app's data folder and of your home folder, so it reads and writes nothing of yours;
 its window stays small, in a corner and above the others while it runs, because a window that cannot be seen is
-slowed down.
+slowed down. `mac:try` opens the same test build for a person: a folder named `Form Filler Trial` in your home
+folder stands in for your home folder and for the app's data, so the vault and the archive you make in a trial are
+not yours. Delete that folder when you are done.
 
 Each push to `main` that passes the tests publishes the page to GitHub Pages (`.github/workflows/pages.yml`). Or unpack
 a built folder and run `python3 serve.py` (port 8771). On a phone: open the page, then Share → Add to Home Screen

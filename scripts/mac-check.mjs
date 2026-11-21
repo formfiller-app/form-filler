@@ -5,6 +5,8 @@
 // for by folders in it, so nothing of yours is read or written.
 //
 //   npm run mac:check                              builds the test app first, then runs this
+//   npm run mac:try                                the test app opened for a person to try, with nothing of theirs
+//                                                  in it: see "A trial" below
 //   node scripts/mac-check.mjs [--run files,store,home,page] [--big MB] [--root FOLDER] [--app APP] [--keep]
 //
 // --big MB also backs up, checks and restores a made-up archive of that many megabytes, timed, and watches the app's
@@ -15,7 +17,7 @@
 // own `open`, which hands the bundle to Launch Services), not as a program run from the terminal.
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { homedir, hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
@@ -30,6 +32,22 @@ const wants = name => run.some(item => item === name || item.startsWith(name + '
 const app = resolve(option('--app') || join(repo, 'src-tauri/target/release/bundle/macos/Form Filler Test.app'));
 const program = app.endsWith('.app') ? join(app, 'Contents/MacOS/form-filler') : app;
 if (!existsSync(program)) { console.error('There is no test build of the app at ' + app + '.\nBuild one with: npm run mac:check'); process.exit(2); }
+
+// A trial (--try): the test app opened as any app is, for a person to click through, with a folder standing in for
+// their home folder and one for the app's data folder, so that no vault, archive or setting of theirs is read or
+// made. The folders are in "Form Filler Trial" in the home folder (or in --root), and are kept from one trial to
+// the next, as an app's are; delete that folder to start again, or when done. What the Mac's own panels are pointed
+// at is real: a form opened from anywhere, a PDF saved anywhere.
+if (process.argv.includes('--try')) {
+  const trial = join(resolve(option('--root') || homedir()), 'Form Filler Trial'), folders = { home: join(trial, 'A stand-in for your home folder'), data: join(trial, 'The app\'s data'), drive: join(trial, 'A drive for backups') };
+  for (const folder of Object.values(folders)) mkdirSync(folder, { recursive: true });
+  copyFileSync(join(repo, 'tests/fixtures/form.pdf'), join(trial, 'an invented form to try.pdf'));
+  console.log('Opening "Form Filler Test" for a trial. Its folders are in:\n  ' + trial + '\nNothing of yours is read or made. Quit the app (Command-Q) to end the trial.');
+  const tried = spawn(program, [], { env: { ...process.env, FF_TEST_ROOT: trial, FF_TEST_DATA: folders.data, FF_TEST_HOME: folders.home }, stdio: 'inherit' });
+  const ended = await new Promise(done => tried.on('exit', (status, signal) => done(signal || status)));
+  console.log('The trial has ended (' + ended + '). What it made is still in:\n  ' + trial + '\nDelete that folder when you have looked, or to start a new trial from nothing.');
+  process.exit(0);
+}
 
 // The checks, bundled into one script the app can run in its page.
 const out = join(repo, 'src-tauri/target/selftest');
