@@ -123,6 +123,9 @@ export function tauriStandIn({ granted = [], links = true, data = null, home = n
     async whoami() { return { pid: process.pid, host: hostname() }; },
     async alive({ pid }) { if (!Number.isInteger(pid) || pid <= 0) return false; try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; } },
     async places() { return { data, home, archive: join(home, 'Form Filler Archive') }; },
+    // Finder and the printer are not stood in for: what was asked of them is written in the log.
+    async reveal({ path }) { const real = await doing('find what is', path, () => realpath(path)); if (!(await within(real))) throw 'forbidden path: ' + path; log.push('reveal ' + real); },
+    async print_page() { log.push('print page'); },
     async home_names() {
       return (await doing('read directory', home, () => readdir(home, { withFileTypes: true }))).filter(entry => OWN.test(entry.name))
         .map(entry => ({ name: entry.name, kind: entry.isDirectory() ? 'folder' : entry.isFile() ? 'file' : 'other' })).sort((a, b) => a.name < b.name ? -1 : 1);

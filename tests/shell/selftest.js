@@ -8,6 +8,8 @@
 //   store   src/app/store-tauri.js, and a vault made, locked, opened and forgotten in it
 //   home    the home folder: only Form Filler's own names in it can be reached
 //   page    the page itself: the invented forms open and their blanks are found, with nothing blocked or fetched
+//   screens the app's own screens, clicked through by this script in a start of their own: setup, your details
+//           hidden, a form filed, the archive, the locker, a backup made and checked, the vault forgotten and restored
 //   big     (only when asked) a large made-up archive backed up, checked and restored, timed
 //   bench   (only when asked) where the time of a backup's check goes, stage by stage; with "hidden", the same check
 //           again while the window is hidden, to see what macOS does to a page nobody can see
@@ -289,23 +291,25 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
 
   if (wants('page')) {
     const early = () => (window.__ffEarly || []).filter(line => !/service ?worker/i.test(line));
-    const summary = () => document.querySelector('.panel .subtle')?.textContent || '';
+    const summary = () => document.querySelector('#app .panel .subtle')?.textContent || '';
     const open = async (name, type, wanted) => {
       const data = new Uint8Array(await invoke('test_fixture', { name })), picker = document.querySelector('#form-file'), carried = new DataTransfer();
       carried.items.add(new File([data], name, { type }));
       picker.files = carried.files;
       picker.dispatchEvent(new Event('change', { bubbles: true }));
       for (const started = performance.now(); ;) {
-        if (!document.querySelector('.busy') && wanted.test(summary())) return Math.round(performance.now() - started);
-        if (performance.now() - started > 180000) throw new Error('after 3 minutes (window ' + document.visibilityState + ') the page says: ' + (document.querySelector('.busy')?.textContent || summary() || document.querySelector('.note')?.textContent || 'nothing'));
+        if (!document.querySelector('#app .busy') && wanted.test(summary())) return Math.round(performance.now() - started);
+        if (performance.now() - started > 180000) throw new Error('after 3 minutes (window ' + document.visibilityState + ') the page says: ' + (document.querySelector('#app .busy')?.textContent || summary() || document.querySelector('#app .note')?.textContent || 'nothing'));
         await new Promise(done => setTimeout(done, 100));
       }
     };
     const labels = () => [...document.querySelectorAll('.list li .label')].map(span => span.textContent);
-    // Forms an earlier run remembered (in the test app's own storage) are forgotten, so each is read afresh.
-    for (const key of Object.keys(localStorage)) if (key.startsWith('ff:template:')) localStorage.removeItem(key);
+    // What an earlier build of the test app left in the window's own storage is cleared, so that anything found there
+    // afterwards was put there by this one.
+    for (const key of Object.keys(localStorage)) if (key.startsWith('ff:')) localStorage.removeItem(key);
     await step('the page is Form Filler\'s own, served by the app, and it loaded with nothing blocked', async () => {
       same(location.origin, 'tauri://localhost');
+      ok(document.querySelector('#desk .desk-bar'), 'the app\'s own bar is across the top');
       ok(/Form Filler \d+\.\d+\.\d+/.test(document.querySelector('footer.version')?.textContent || ''), 'the footer says the version');
       ok(document.querySelector('#form-file'), 'the form picker is there');
       same(early(), [], 'what went wrong while the page loaded');
@@ -320,6 +324,11 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
       await open('fillable.pdf', 'application/pdf', /9 blanks found · 8 are the PDF’s own fields/);
       await open('form-photo.png', 'image/png', /13 blanks found · straightened 1\.2°/);
       same(early(), [], 'blocked or failed while they opened');
+      // Each form's blanks are remembered as a file in the data folder (written just after the form is read), and
+      // nothing is kept in the window's own storage.
+      const remembered = tauriFiles(tauri, places.data);
+      for (let tries = 0; (await remembered.stat('templates') ? (await remembered.list('templates')).length : 0) < 3; tries++) { if (tries > 50) throw new Error('the three forms were not remembered in the data folder: ' + JSON.stringify(await tree(remembered))); await invoke('test_wait', { ms: 100 }); }
+      same(Object.keys(localStorage).filter(key => key.startsWith('ff:')), [], 'kept in the window\'s own storage');
     });
     await step('nothing is fetched from anywhere but the app itself, and the window goes nowhere else', async () => {
       await refused(fetch('https://example.org/'), /./, 'a fetch from the web');
@@ -393,6 +402,134 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
       same([report.ok, report.files], [true, count]);
     });
     void BACKUPS;
+  }
+
+  if (wants('screens')) {
+    const PASSPHRASE = 'invented horse battery staple', here = root + '/screens';
+    const app = document.getElementById('app'), desk = () => document.getElementById('desk');
+    const said = () => desk().innerText.replace(/\s+/g, ' ');
+    // What a person does: a button pressed, a box typed in. And a wait kept by the app, since a page's own timers slow.
+    const press = selector => { const target = document.querySelector(selector); if (!target) throw new Error('nothing to press at ' + selector + '; the screen says: ' + said().slice(0, 300)); target.click(); };
+    const act = name => press('#desk [data-act="' + name + '"]'), go = name => press('#desk [data-go="' + name + '"]');
+    const type = (selector, value) => { const box = document.querySelector(selector); if (!box) throw new Error('no box at ' + selector + '; the screen says: ' + said().slice(0, 300)); box.value = value; box.dispatchEvent(new Event('input', { bubbles: true })); };
+    const until = async (test, what, seconds = 90) => { for (const started = performance.now(); ;) { const found = await test(); if (found) return found; if (performance.now() - started > seconds * 1000) throw new Error('waited ' + seconds + ' s for ' + what + '; the screen says: ' + said().slice(0, 400) + ' | ' + (app.querySelector('.note')?.textContent || '')); await invoke('test_wait', { ms: 100 }); } };
+    const says = (words, seconds) => until(() => !desk().querySelector('.busy') && said().includes(words), '“' + words + '”', seconds);
+    const noted = words => until(() => [...app.querySelectorAll('.note')].some(item => item.textContent.includes(words)), 'the note “' + words + '”');
+    // The dialogs answer with what this script puts in line, and grant it as a pick in the real dialog would.
+    const answers = [], dialog = window.__TAURI__.dialog;
+    const answer = async () => { const next = answers.shift() ?? null; if (next) await invoke('test_grant', { path: next }); return next; };
+    dialog.open = answer; dialog.save = answer;
+    const archive = () => tauriFiles(tauri, places.archive), dataFolder = tauriFiles(tauri, places.data);
+    let stamp = '';
+
+    await step('first run in the app: the vault is made in the data folder, the recovery key shown, the archive made in the home folder by name', async () => {
+      await until(() => document.querySelector('#desk [name="setup-passphrase"]'), 'the setup screen');
+      same(app.hidden, true, 'the form page waits behind the setup');
+      type('[name="setup-passphrase"]', PASSPHRASE); type('[name="setup-again"]', PASSPHRASE);
+      act('make-vault');
+      const key = (await until(() => document.querySelector('#desk-key code'), 'the recovery key')).innerText.replace(/\s+/g, '');
+      ok(/^AGE-SECRET-KEY-1[0-9A-Z]{58}$/.test(key), 'a recovery key is shown');
+      act('key-kept');
+      await until(() => document.querySelector('#desk [data-act="archive-home"]'), 'the archive step');
+      act('archive-home');
+      await until(() => !app.hidden, 'the form page');
+      same((await tree(dataFolder, 'vault')).sort(), ['vault/identity.age', 'vault/profile.age', 'vault/vault.json']);
+      same((await archive().list('')).map(entry => entry.name), ['.formfiller', '_Inbox', '_Unsorted']);
+      same(JSON.parse(words(await dataFolder.read('settings.json'))).archive, { holder: 'home' });
+    });
+    await step('your details are saved locked, and your name, date of birth and address show by their last characters', async () => {
+      document.getElementById('details-panel').open = true;
+      for (const [key, value] of Object.entries({ fullName: 'Jane Roe', email: 'jane@example.org', address: '12 Elm Street', birthDate: '02/30/1980' })) type('[name="detail-' + key + '"]', value);
+      press('#save-details');
+      await noted('Your details are saved, locked with your passphrase.');
+      await until(() => document.querySelector('[name="hidden-fullName"]'), 'the hidden name');
+      same([...app.querySelectorAll('#details-panel .details input[readonly]')].map(box => box.value), ['••••••oe', '•••••••••reet', '••••••1980']);
+      ok(!document.documentElement.innerHTML.includes('Jane Roe'), 'the name is nowhere in the page while it is hidden');
+      ok(!words(await dataFolder.read('vault/profile.age')).includes('Jane Roe'), 'and not in plain text in the vault');
+    });
+    await step('a form is filled, its PDF saved where the dialog says, and filed in the archive with the form it came from', async () => {
+      const bytesOf = new Uint8Array(await invoke('test_fixture', { name: 'form.pdf' })), picker = document.querySelector('#form-file'), carried = new DataTransfer();
+      carried.items.add(new File([bytesOf], 'form.pdf', { type: 'application/pdf' }));
+      picker.files = carried.files; picker.dispatchEvent(new Event('change', { bubbles: true }));
+      await until(() => !app.querySelector('.busy') && /13 blanks found/.test(app.querySelector('.panel .subtle')?.textContent || ''), 'the form\'s 13 blanks', 180);
+      same(app.querySelector('[data-blank]').value, '••••••oe', 'your name on the form, hidden');
+      ok(!app.querySelector('#hand-photo'), 'no handwriting reader in the app');
+      answers.push(here + '/saved/form - filled.pdf');
+      press('#pdf-edit');
+      await noted('Saved as ' + here + '/saved/form - filled.pdf');
+      const saved = new Uint8Array(await call(() => fs.readFile(here + '/saved/form - filled.pdf')));
+      same(words(saved.subarray(0, 5)), '%PDF-');
+      press('#file-it');
+      await until(() => document.querySelector('#desk [name="file-with"]'), 'the filing screen');
+      type('[name="file-with"]', 'IRS'); type('[name="file-matter"]', 'Taxes/2026');
+      act('file-it');
+      await says('It is in your archive as');
+      const report = await openArchive(archive()).verify();
+      same([report.ok, report.items, report.files], [true, 1, 2], 'the archive verifies');
+      const [item] = (await archive().list('Taxes/2026')).map(entry => entry.name);
+      same((await archive().list('Taxes/2026/' + item)).map(entry => entry.name), ['filled - form - filled.pdf', 'original - form.pdf', 'record.json']);
+      same(await archive().sha256('Taxes/2026/' + item + '/filled - form - filled.pdf'), await print(saved), 'the PDF that was saved, byte for byte');
+      same(await archive().sha256('Taxes/2026/' + item + '/original - form.pdf'), await print(bytesOf), 'the form itself, byte for byte');
+    });
+    await step('the archive screen lists it and checks every file; the locker seals a document and gives back the same bytes', async () => {
+      go('archive');
+      await says('· IRS · form');
+      act('shelf-check');
+      await says('Every file is as it was filed: 1 item, 2 files');
+      go('locker');
+      await says('Nothing is in the locker yet.');
+      answers.push(here + '/an invented card.pdf');
+      act('doc-pick');
+      await until(() => document.querySelector('#desk [name="doc-title"]'), 'the title box');
+      type('[name="doc-title"]', 'Invented ID card');
+      act('doc-add');
+      await says('“Invented ID card” is in the locker.');
+      answers.push(here + '/saved/a copy.pdf');
+      act('doc-save');
+      await says('A copy of “Invented ID card” was saved');
+      same(await print(await call(() => fs.readFile(here + '/saved/a copy.pdf'))), await print(await call(() => fs.readFile(here + '/an invented card.pdf'))), 'the copy is the document, byte for byte');
+      act('lock');
+      await says('The locker is locked.');
+      ok(!said().includes('Invented ID card'), 'locked, the locker shows nothing');
+      type('[name="desk-secret"]', 'not the passphrase'); act('unlock'); await says('That passphrase does not open this vault.');
+      type('[name="desk-secret"]', PASSPHRASE); act('unlock');
+      await says('Invented ID card');
+    });
+    await step('a backup is made on the folder picked, read back, and checked fully with the passphrase', async () => {
+      go('backup');
+      await says('Choose a drive or a folder for them');
+      answers.push(here + '/drive');
+      act('backup-choose');
+      await says('There is no backup there yet.');
+      act('backup-now');
+      await says('Backed up.', 180);
+      const made = (await listBackups(tauriFiles(tauri, here + '/drive'))).backups;
+      same([made.length, made[0].missing], [1, []]);
+      stamp = made[0].name;
+      act('check'); await says('matches its fingerprints');
+      act('check-fully'); type('[name="check-secret"]', PASSPHRASE); act('check-go');
+      await says('is whole and opens.', 180);
+    });
+    await step('the vault forgotten leaves no folder, and a restore puts it back in its place; the archive, still there, gets its copy beside it', async () => {
+      go('form');
+      document.getElementById('details-panel').open = true;
+      press('#forget-details');
+      ok(/every document in your locker from this Mac for good/.test(app.querySelector('#details-panel .warn').textContent), 'the warning says the locker goes too');
+      press('#forget-yes');
+      await noted('Your details are forgotten');
+      same(await dataFolder.stat('vault'), null, 'no empty folder is left');
+      go('backup');
+      await until(() => document.querySelector('#desk [data-act="restore-this"]'), 'the backup in the list');
+      act('restore-this');
+      type('[name="restore-secret"]', PASSPHRASE);
+      act('restore-go');
+      await says('Nothing was overwritten.', 240);
+      ok(/Your vault[^.]*: back in place\./.test(said()), 'the vault is back in place: ' + said().slice(0, 300));
+      ok(/Your archive: something was there already, so this copy is beside it, as “Form Filler Archive \(restored /.test(said()), 'the archive\'s copy is beside it');
+      same((await tree(dataFolder, 'vault')).filter(path => !path.endsWith('/')).length, 5, 'the vault\'s five files');
+      const beside = tauriFiles(tauri, await invoke('grant_home', { name: 'Form Filler Archive (restored ' + stamp + ')' }));
+      same((await openArchive(beside).verify()).ok, true, 'the copy beside verifies');
+    });
   }
 
   // Where the time of a backup's check goes: each stage alone, on a made-up snapshot of a few large files.

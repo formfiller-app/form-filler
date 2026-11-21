@@ -123,6 +123,9 @@ export function makeKeeper({ store, legacy = null, onChange = () => {}, onLock =
     lastActive = clock(); arm();
   };
   keeper.keptKey = () => { keeper.recoveryKey = null; changed(); };
+  // The open vault itself, for what it holds besides your details (the Mac app's locker), or null while it is not
+  // open. Locking forgets the key in it, so a vault taken from here and kept reads nothing once the keeper has locked.
+  keeper.vault = () => keeper.state === 'open' ? vault : null;
   // 15 minutes left alone: locked (but never while a new recovery key is on show). Called by the timer, and by the page
   // whenever it comes back into view, since a timer does not run while a computer sleeps.
   keeper.check = () => {

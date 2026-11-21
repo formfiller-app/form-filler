@@ -5,13 +5,14 @@ import { placeAnswers, numberedLines } from '../lib/answers.js';
 import { buildPdf, joinPdfs, isSignature } from '../lib/output.js';
 import { readFields, withFound, pickOption } from '../lib/fields.js';
 import { makeTemplate, readTemplate } from '../lib/templates.js';
-import { DETAILS, autofill, isSignatureLabel } from '../lib/profile.js';
+import { DETAILS, MASKED, masked, detailFor, autofill, isSignatureLabel } from '../lib/profile.js';
 import { parseCsv, matchColumns, columnIds, columnsNow, rowValues } from '../lib/merge.js';
 import { segmentLines } from '../lib/handwriting.js';
 import { HANDWRITING_MODELS } from '../lib/models.js';
 import { sha256 } from '../lib/hash.js';
 import { browserStore } from '../lib/stores/browser.js';
 import { makeKeeper, MIN_PASSPHRASE } from './keep.js';
+import { shell, tauri, pageStore, vaultStore } from './platform.js';
 
 const app = document.getElementById('app');
 const asset = path => new URL(import.meta.env.BASE_URL + path, window.location.href).href;
@@ -33,7 +34,8 @@ const MAX_PAGES = 10, WIDTH = 1700;
 
 // What this browser keeps on this device: your details, a signature if you ask, and each form's blanks (by the form's
 // fingerprint). Storage can be missing or refused (a private window); then nothing is kept and everything still works.
-const store = {
+// In the Mac app the same three calls keep them in the app's data folder instead (platform.js), where a backup finds them.
+const store = shell ? pageStore({ onProblem: message => { note = 'That could not be kept on this Mac: ' + message; render(); } }) : {
   get(key, fallback) { try { const value = localStorage.getItem('ff:' + key); return value === null ? fallback : JSON.parse(value); } catch { return fallback; } },
   set(key, value) { try { localStorage.setItem('ff:' + key, JSON.stringify(value)); return true; } catch { return false; } },
   drop(key) { try { localStorage.removeItem('ff:' + key); } catch { /* nothing kept */ } },
@@ -47,18 +49,29 @@ let answers = '', overrides = {}, busy = '', note = '', adding = false, prints =
 const asSignature = value => typeof value === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : null;
 const asDetails = value => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string')) : {};
 let useDetails = store.get('useDetails', true) !== false, profile = {}, savedSignature = null, confirmForget = false;
+// The Mac app's own screens (desk.js: the locker, the archive, backups) are loaded there only; `desk` is what they
+// gave back once started. In the app the page's settings arrive from the data folder a moment after the page opens.
+const deskLoaded = shell ? import('./desk.js') : null;
+let desk = null, lastMade = null;
+if (shell) void store.ready.then(() => { useDetails = store.get('useDetails', true) !== false; render(); }, () => {});
+// The Mac app keeps your name, date of birth and street address off the screen until you ask to see them (the privacy
+// wall's fifth part): in Your details and on the filled form they show by their last characters only.
+let revealed = false;
+const hides = key => shell && !revealed && MASKED.includes(key);
+// A blank's value as the page shows it: one your details filled, of a hidden kind, by its last characters.
+const seen = (blank, index, value, fixed) => typeof value === 'string' && value && fixed.has(index) && !(blank.id in overrides) && value === fixed.get(index) && hides(detailFor(blank.label)) ? masked(value) : value;
 // Your details and a saved signature are kept locked in this browser with your passphrase, never in plain text
 // (keep.js). Plain copies an earlier version made are read once, checked as above, and gone once locked away.
 const keeper = makeKeeper({
-  store: browserStore(),
+  store: shell ? vaultStore() : browserStore(),
   legacy: { read: () => ({ details: asDetails(store.get('profile', {})), signature: asSignature(store.get('signature', null)) }),
     drop: which => { if (which !== 'signature') store.drop('profile'); if (which !== 'details') store.drop('signature'); } },
-  onChange: () => { profile = keeper.details; savedSignature = keeper.signature; render(); },
+  onChange: () => { profile = keeper.details; savedSignature = keeper.signature; render(); desk?.changed(); },
   // Locked: your details have left the form, and so does any signature on it, with the PDFs made from them.
   onLock: () => {
     let taken = 0;
     for (const id of Object.keys(overrides)) if (isSignature(overrides[id])) { delete overrides[id]; taken++; }
-    readyToSend = null; prints = {};
+    readyToSend = null; prints = {}; revealed = false; lastMade = null;
     if (pad.open) pad.close('cancel');
     clearPad();
     note = 'Your details are locked' + (taken ? ', and the signature was taken off the form' : '') + '.';
@@ -159,10 +172,11 @@ const useTemplate = template => {
 async function openForm(file) {
   busy = 'Opening the form…'; note = ''; problems = []; pendingTemplate = null; pendingMark = null; render();
   try {
+    if (shell) await store.ready.catch(() => {});   // the forms remembered in the app's data folder
     const bytes = await file.arrayBuffer(), own = isPdf(file) ? await readFields(bytes) : null;
     const usable = Boolean(own && !own.encrypted && !own.rotated && own.blanks.length), { pdf, pages, more } = await pagesOf(file, bytes, usable);
     form = { name: file.name, bytes, hash: await sha256(bytes), pdf, locked: Boolean(own?.encrypted), pages };
-    blanks = []; overrides = {}; prints = {}; remembered = false; merge = null; labelsMark = null;
+    blanks = []; overrides = {}; prints = {}; remembered = false; merge = null; labelsMark = null; lastMade = null;
     const notes = [];
     if (more) notes.push('Only the first ' + MAX_PAGES + ' pages are shown; the other ' + more + (own?.encrypted ? ' cannot be carried into the filled copy, because this PDF is locked.' : ' are kept as they are.'));
     let fields = [];
@@ -310,8 +324,9 @@ const signable = blank => blank.kind === 'sign' || (blank.kind !== 'check' && bl
 const blankName = (blank, number) => 'Blank ' + (number + 1) + (blank.label ? ', ' + h(blank.label) : blank.unsure ? ', label unclear' : '');
 // A checkbox whose caption could not be told is shown as unclear, with the words it might be.
 const unclear = blank => 'unclear: ' + blank.unsure.map(word => '“' + h(word) + '”').join(' or ') + (blank.unsure.length === 1 ? '?' : '');
-function blankInput(blank, number, value) {
+function blankInput(blank, number, value, hidden = null) {
   const name = ' data-blank="' + blank.id + '" aria-label="' + blankName(blank, number) + '"';
+  if (hidden !== null) return '<input' + name + ' value="' + h(hidden) + '" readonly title="Hidden. Press “Show them” to see or change it.">';
   if (isSignature(value)) return '<img class="signed" alt="Signature" src="' + h(value.signature) + '"><button type="button" class="unsign" data-unsign="' + blank.id + '" aria-label="Take the signature off blank ' + (number + 1) + '">×</button>';
   if (blank.kind === 'check') return '<input type="checkbox"' + name + (value ? ' checked' : '') + '>';
   // A radio group: a button over each of the form's own buttons, so the words printed beside them stay readable.
@@ -330,13 +345,14 @@ function pageMarkup(page, index, values, fixed) {
   return '<section class="sheet' + (adding ? ' adding' : '') + '" data-page="' + index + '"><img alt="Page ' + (index + 1) + ' of the form" src="' + page.canvas.toDataURL('image/jpeg', 0.85) + '">' +
     mine.map(([blank, number]) => {
       const style = 'left:' + pct(blank.x0, page.width) + ';top:' + pct(blank.y0, page.height) + ';width:' + pct(blank.x1 - blank.x0, page.width) + ';height:' + pct(blank.y1 - blank.y0, page.height);
-      return '<div class="blank ' + blank.kind + (fixed.has(number) && !(blank.id in overrides) ? ' mine' : '') + '" style="' + style + '"><span class="tag">' + (number + 1) + '</span>' + blankInput(blank, number, values[number]) +
+      const shownAs = seen(blank, number, values[number], fixed);
+      return '<div class="blank ' + blank.kind + (fixed.has(number) && !(blank.id in overrides) ? ' mine' : '') + '" style="' + style + '"><span class="tag">' + (number + 1) + '</span>' + blankInput(blank, number, values[number], shownAs === values[number] ? null : shownAs) +
         (adding ? '<button type="button" class="remove" data-remove="' + blank.id + '" aria-label="Remove blank ' + (number + 1) + '">×</button>' : '') + '</div>';
     }).join('') + '</section>';
 }
 const shown = (blank, value) => isSignature(value) ? '✍ signed' : blank.kind === 'check' ? (value ? '☑' : '☐')
   : blank.kind === 'choice' && value ? (pickOption(blank.options, value) ? '<b>' + h(pickOption(blank.options, value)) + '</b>' : '<b class="miss">' + h(value) + '</b> (not one of: ' + h(blank.options.join(', ')) + ')') : '<b>' + h(value || '—') + '</b>';
-const listMarkup = (values, fixed) => blanks.map((blank, index) => '<li><span class="label' + (!blank.label && blank.unsure ? ' unsure" title="Which words belong to this box could not be told. Check it on the form.' : '') + '">' + (!blank.label && blank.unsure ? unclear(blank) : h(blank.label || (blank.kind === 'check' ? 'checkbox' : 'blank'))) + '</span> ' + shown(blank, values[index]) + (fixed.has(index) && !(blank.id in overrides) && values[index] === fixed.get(index) ? ' <span class="from">filled for you</span>' : '') + '</li>').join('');
+const listMarkup = (values, fixed) => blanks.map((blank, index) => '<li><span class="label' + (!blank.label && blank.unsure ? ' unsure" title="Which words belong to this box could not be told. Check it on the form.' : '') + '">' + (!blank.label && blank.unsure ? unclear(blank) : h(blank.label || (blank.kind === 'check' ? 'checkbox' : 'blank'))) + '</span> ' + shown(blank, seen(blank, index, values[index], fixed)) + (fixed.has(index) && !(blank.id in overrides) && values[index] === fixed.get(index) ? ' <span class="from">filled for you</span>' : '') + '</li>').join('');
 
 // The recovery key in groups of six, easier to copy onto paper (spaces do not matter when it is typed back).
 const grouped = key => key.slice(0, 16) + ' ' + key.slice(16).match(/.{1,6}/g).join(' ');
@@ -344,10 +360,16 @@ function detailsPanel() {
   const state = keeper.state, button = (id, title, kind = 'secondary') => '<button type="button" id="' + id + '" class="' + kind + '">' + title + '</button>';
   const secret = (name, title, auto) => '<label>' + title + '<input type="password" name="' + name + '" autocomplete="' + auto + '"></label>';
   const choose = (name, title) => '<div class="details passphrase">' + secret(name, title + ' (at least ' + MIN_PASSPHRASE + ' characters; a few unrelated words are best)', 'new-password') + secret(name + '-again', 'The same passphrase again', 'new-password') + '</div>';
-  const inputs = '<div class="details">' + DETAILS.map(([key, title]) => '<label>' + h(title) + '<input name="detail-' + key + '" value="' + h(profile[key] || '') + '" autocomplete="off"></label>').join('') +
+  // A hidden detail has no box of its own: what is shown in its place cannot be typed in, and saving leaves it as it is.
+  const box = (key, title) => hides(key) && profile[key] ? '<label>' + h(title) + '<input name="hidden-' + key + '" value="' + h(masked(profile[key])) + '" readonly autocomplete="off"></label>'
+    : '<label>' + h(title) + '<input name="detail-' + key + '" value="' + h(profile[key] || '') + '" autocomplete="off"></label>';
+  const reveal = shell && MASKED.some(key => profile[key]) ? '<p class="subtle">' + (revealed ? 'Your name, date of birth and street address are shown. ' : 'Your name, date of birth and street address are shown by their last characters only. ') +
+    '<button type="button" data-reveal class="secondary">' + (revealed ? 'Hide them again' : 'Show them') + '</button></p>' : '';
+  const inputs = reveal + '<div class="details">' + DETAILS.map(([key, title]) => box(key, title)).join('') +
     '<label>Dates written as<select name="detail-dateStyle">' + [['us', '11/13/2026'], ['iso', '2026-11-13'], ['day', '13/11/2026']].map(([value, title]) => '<option value="' + value + '"' + ((profile.dateStyle || 'us') === value ? ' selected' : '') + '>' + title + '</option>').join('') + '</select></label></div>';
   const unlock = '<div class="details unlock"><label>Your passphrase, or your recovery key<input type="password" id="unlock-secret" autocomplete="current-password"></label></div>';
-  const forget = confirmForget ? '<p class="warn">This removes your details and saved signature from this browser for good: they cannot be brought back.</p><div class="tools">' + button('forget-yes', 'Yes, forget them', 'primary') + button('forget-no', 'Keep them') + '</div>' : '';
+  const forget = confirmForget ? '<p class="warn">' + (shell ? 'This removes your details, your saved signature and every document in your locker from this Mac for good: they cannot be brought back. Your archive and your backups are not touched.'
+    : 'This removes your details and saved signature from this browser for good: they cannot be brought back.') + '</p><div class="tools">' + button('forget-yes', 'Yes, forget them', 'primary') + button('forget-no', 'Keep them') + '</div>' : '';
   const tools = (...buttons) => confirmForget ? forget : '<div class="tools">' + buttons.join('') + '</div>';
   const stray = keeper.stray ? '<p class="warn">This browser also holds details in plain text beside your locked ones. This version never writes them, so another page at this address may have put them there. They are not used.</p><div class="tools">' + button('forget-stray', 'Forget the plain copies') + '</div>' : '';
   let body;
@@ -363,14 +385,15 @@ function detailsPanel() {
   const recovery = keeper.recoveryKey ? '<div class="recovery" id="recovery-key"><h3>Your recovery key</h3><p>If you forget your passphrase, this is the only way back to your details. Print it or write it down, and keep it somewhere safe; it is shown only now.</p>' +
     '<code>' + h(grouped(keeper.recoveryKey)) + '</code><div class="tools">' + button('print-key', 'Print it') + button('key-kept', 'I have kept it', 'primary') + '</div></div>' : '';
   return '<details class="panel" id="details-panel"' + (store.get('detailsOpen', false) || keeper.recoveryKey || keeper.legacy ? ' open' : '') + '><summary><h2>Your details</h2></summary>' +
-    '<p class="subtle">Filled into any blank whose label asks for them (Name, Phone, E-mail, City, State, ZIP…), and “Date” blanks get today. Kept in this browser on this device only, locked with a passphrase you choose, and never sent anywhere.</p>' +
+    '<p class="subtle">Filled into any blank whose label asks for them (Name, Phone, E-mail, City, State, ZIP…), and “Date” blanks get today. Kept ' + (shell ? 'on this Mac only' : 'in this browser on this device only') + ', locked with a passphrase you choose, and never sent anywhere.</p>' +
     recovery + body + (savedSignature && state !== 'locked' ? '<p class="subtle">Your saved signature: <img class="saved-sign" alt="Saved signature" src="' + h(savedSignature) + '"> <button type="button" id="forget-signature" class="secondary">Forget it</button></p>' : '') + '</details>';
 }
 // Saving: with the vault open, locked away at once; with none yet, a vault made with the passphrase typed twice.
 // What was typed is remembered for the page first, so nothing is lost if the passphrase is refused.
 async function saveDetails() {
-  const value = name => app.querySelector('[name=' + name + ']')?.value || '';
-  const details = Object.fromEntries([...DETAILS.map(([key]) => key), 'dateStyle'].map(key => [key, value('detail-' + key).trim()]).filter(([, item]) => item));
+  const field = name => app.querySelector('[name=' + name + ']'), value = name => field(name)?.value || '';
+  // A detail that is hidden has no box of its own on the page, so it stays as it is.
+  const details = Object.fromEntries([...DETAILS.map(([key]) => key), 'dateStyle'].map(key => [key, field('detail-' + key) ? value('detail-' + key).trim() : profile[key] || '']).filter(([, item]) => item));
   if (keeper.state === 'none') {
     const passphrase = value('passphrase'), again = value('passphrase-again');
     await keeper.save({ details });
@@ -402,7 +425,20 @@ async function changePassphrase() {
 // Printing the recovery key prints that box alone (style.css).
 function printKey() {
   const root = document.documentElement, done = () => { root.classList.remove('print-key'); window.removeEventListener('afterprint', done); };
-  root.classList.add('print-key'); window.addEventListener('afterprint', done); window.print();
+  root.classList.add('print-key'); window.addEventListener('afterprint', done);
+  if (!shell) { window.print(); return; }
+  // The Mac app prints its page itself, and does not say when it is done: the box stays alone on the page until the
+  // next thing done on it.
+  const after = () => { done(); for (const kind of ['pointerdown', 'keydown']) document.removeEventListener(kind, after, true); };
+  for (const kind of ['pointerdown', 'keydown']) document.addEventListener(kind, after, true);
+  printPage();
+}
+// Printing the page. The Mac app is asked to print it (print_page), and what is hidden is shown first: a printed form
+// must carry your details whole.
+function printPage() {
+  if (!shell) { window.print(); return; }
+  if (!revealed && !document.documentElement.classList.contains('print-key')) { revealed = true; render(); }
+  void tauri.invoke('print_page').catch(error => { note = 'The page could not be printed: ' + (error.message || error); render(); });
 }
 function mergePanel() {
   if (!form) return '';
@@ -467,16 +503,20 @@ function render() {
       '<label class="toggle"><input type="checkbox" id="use-details"' + (useDetails ? ' checked' : '') + '> Fill my details and today’s date' + (useDetails ? ' (' + fixed.size + ' blank' + (fixed.size === 1 ? '' : 's') + ')' : '') + (useDetails && keeper.state === 'locked' && !keeper.legacy ? ' — your details are locked: unlock them under Your details' : '') + '</label>' +
       '<textarea id="answers" rows="8" placeholder="Jane Roe. 11/13/2026. Respiratory Care&#10;Ventilator. VNT-2219. 1">' + h(answers) + '</textarea>' +
       '<div class="tools"><label class="pick small">Read a printed page<input id="answers-photo" type="file" accept="image/*"></label>' +
-      '<label class="pick small">Read handwriting<input id="hand-photo" type="file" accept="image/*"></label>' +
-      '<label class="model">Handwriting reader <select id="hand-model">' + Object.entries(HANDWRITING_MODELS).map(([key, item]) => '<option value="' + key + '"' + (key === model ? ' selected' : '') + '>' + item.title + ' (' + item.megabytes + ' MB once)</option>').join('') + '</select></label></div>' +
+      // The handwriting reader fetches its model from the web the first time, and the Mac app fetches nothing.
+      (shell ? '' : '<label class="pick small">Read handwriting<input id="hand-photo" type="file" accept="image/*"></label>' +
+      '<label class="model">Handwriting reader <select id="hand-model">' + Object.entries(HANDWRITING_MODELS).map(([key, item]) => '<option value="' + key + '"' + (key === model ? ' selected' : '') + '>' + item.title + ' (' + item.megabytes + ' MB once)</option>').join('') + '</select></label>') + '</div>' +
       handPanel() +
       '<ol class="list">' + listMarkup(finals, fixed) + '</ol>' +
       (extra.length ? '<p class="note">More answers than blanks. Not placed: ' + h(extra.join(' / ')) + '</p>' : '') + '</section>' +
       '<section class="panel filled-panel">' +
       '<h2>3. The filled form</h2><p class="subtle">Tap any answer on the form to change it there. Missed a blank? Add it, then drag across the place to write.</p>' +
       '<div class="tools"><button type="button" id="add-mode" class="secondary">' + (adding ? 'Done adding' : 'Add or remove a blank') + '</button></div>' +
+      (shell && (revealed || blanks.some((blank, index) => seen(blank, index, finals[index], fixed) !== finals[index])) ? '<p class="subtle">' + (revealed ? 'Your name, date of birth and street address are shown. ' : 'Your name, date of birth and street address are shown by their last characters only; the PDF carries them whole. ') +
+        '<button type="button" data-reveal class="secondary">' + (revealed ? 'Hide them again' : 'Show them') + '</button></p>' : '') +
       form.pages.map((page, index) => pageMarkup(page, index, finals, fixed)).join('') +
-      '<div class="tools"><button type="button" id="pdf-edit" class="primary" title="Also ⌘S / Ctrl+S">Download PDF you can still edit</button>' + (canShareFiles ? '<button type="button" id="pdf-send" class="primary">Send… (e-mail, Messages)</button>' : '') + '<button type="button" id="pdf-print" class="secondary">Download print-ready PDF</button><button type="button" id="print" class="secondary">Print</button></div>' +
+      '<div class="tools"><button type="button" id="pdf-edit" class="primary" title="Also ⌘S / Ctrl+S">' + (shell ? 'Save PDF you can still edit…' : 'Download PDF you can still edit') + '</button>' + (canShareFiles ? '<button type="button" id="pdf-send" class="primary">Send… (e-mail, Messages)</button>' : '') + '<button type="button" id="pdf-print" class="secondary">' + (shell ? 'Save print-ready PDF…' : 'Download print-ready PDF') + '</button><button type="button" id="print" class="secondary">Print</button>' +
+      (shell && lastMade?.form === form.hash ? '<button type="button" id="file-it" class="secondary">File this PDF in the archive…</button>' : '') + '</div>' +
       '<dl class="prints"><dt>Form</dt><dd>' + form.hash + '</dd><dt>Answers</dt><dd id="answers-print">…</dd>' + Object.entries(prints).map(([name, value]) => '<dt>' + h(name) + '</dt><dd>' + value + '</dd>').join('') + '</dl></section></div>' : '') +
     mergePanel() + detailsPanel() + '</main>' +
     '<footer class="version">Form Filler ' + __APP_VERSION__ + (__APP_COMMIT__ ? ' · ' + __APP_COMMIT__ : '') + '</footer>';
@@ -492,7 +532,7 @@ function refreshValues() {
     if (input.type === 'radio') { const picked = pickOption(blank.options, finals[index]); for (const button of app.querySelectorAll('[data-blank="' + blank.id + '"]')) button.checked = button.value === picked; }
     else if (input.type === 'checkbox') input.checked = Boolean(finals[index]);
     else if (input.tagName === 'SELECT') { const picked = pickOption(blank.options, finals[index]) ?? ''; input.value = picked; input.classList.toggle('unmatched', Boolean(finals[index]) && !picked); }
-    else if (!isSignature(finals[index])) input.value = finals[index] ?? '';
+    else if (!isSignature(finals[index])) { const shownAs = seen(blank, index, finals[index], fixed); input.value = shownAs ?? ''; input.readOnly = shownAs !== finals[index]; }
   });
   const list = app.querySelector('.list');
   if (list) list.innerHTML = listMarkup(finals, fixed);
@@ -502,6 +542,8 @@ function refreshValues() {
 const pagesForPdf = () => Promise.all(form.pages.map(async page => ({ width: page.width, height: page.height, pdfPage: form.pdf ? page.pdfPage : null,
   image: form.pdf && !form.locked ? null : { type: 'jpg', bytes: new Uint8Array(await (await new Promise(resolve => page.canvas.toBlob(resolve, 'image/jpeg', 0.9))).arrayBuffer()) } })));
 const save = (bytes, name, type = 'application/pdf') => {
+  // The Mac app asks where to save, in its own save dialog, and writes the file there.
+  if (shell) return void deskLoaded.then(module => module.saveAs(bytes, name)).then(path => { if (path) { note = 'Saved as ' + path + '.'; render(); } }, error => { note = 'It could not be saved: ' + (error.message || error); render(); });
   const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([bytes], { type })); link.download = name; document.body.append(link); link.click();
   setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 4000);
 };
@@ -517,7 +559,12 @@ async function makePdf(editable) {
 }
 async function download(editable) {
   busy = 'Making the PDF…'; render();
-  try { save(await makePdf(editable), baseName() + (editable ? ' - filled.pdf' : ' - filled, print-ready.pdf')); }
+  try {
+    const bytes = await makePdf(editable), name = baseName() + (editable ? ' - filled.pdf' : ' - filled, print-ready.pdf');
+    // In the Mac app the PDF just made can be filed in the archive, with the form it was made from.
+    lastMade = shell ? { bytes, name, form: form.hash, answers: await sha256(answers) } : null;
+    save(bytes, name);
+  }
   catch (error) { note = 'The PDF could not be made: ' + (error.message || error); }
   busy = ''; render();
 }
@@ -659,7 +706,7 @@ app.addEventListener('click', event => {
   if (target.id === 'pdf-edit') void download(true);
   if (target.id === 'pdf-print') void download(false);
   if (target.id === 'pdf-send') void send();
-  if (target.id === 'print') window.print();
+  if (target.id === 'print') printPage();
   if (target.id === 'template-save') save(JSON.stringify(marked(templateNow(true)), null, 1), baseName() + ' - template.json', 'application/json');
   if (target.id === 'template-anyway' && pendingTemplate) {
     useTemplate(pendingTemplate); labelsMark = pendingMark; pendingTemplate = null; pendingMark = null; remember(); remembered = true;
@@ -681,6 +728,8 @@ app.addEventListener('click', event => {
   if (target.id === 'change-passphrase') void changePassphrase();
   if (target.id === 'key-kept') keeper.keptKey();
   if (target.id === 'print-key') printKey();
+  if (target.dataset.reveal !== undefined) { revealed = !revealed; render(); }
+  if (target.id === 'file-it' && lastMade && form) void deskLoaded.then(module => module.fileInArchive({ made: lastMade, original: form.bytes ? { name: form.name, bytes: new Uint8Array(form.bytes) } : null, title: baseName() }));
   if (target.id === 'forget-details') { confirmForget = true; render(); }
   if (target.id === 'forget-no') { confirmForget = false; render(); }
   if (target.id === 'forget-yes') { confirmForget = false; void keeper.forget().then(() => { note = 'Your details are forgotten on this device.'; }, error => { note = error.message; }).then(render); }
@@ -743,6 +792,7 @@ const fromLink = new URLSearchParams(location.hash.slice(1)).get('answers');
 if (fromLink) answers = fromLink;
 render();
 void keeper.start();
+if (shell) void deskLoaded.then(module => { desk = module.start({ app, keeper, store, h, say: message => { note = message; render(); } }); });
 // Anything done on the page keeps the vault open; 15 minutes of nothing locks it (keep.js). A timer does not run while a
 // computer sleeps, so the time is looked at again whenever the page comes back into view, and every minute.
 for (const kind of ['pointerdown', 'keydown', 'input']) document.addEventListener(kind, () => keeper.touch(), true);
@@ -755,7 +805,8 @@ app.addEventListener('keydown', event => { if (event.key === 'Enter' && event.ta
 // When a newer version has been published, the old one must not linger: the page looks for it each time it is opened
 // or brought back to the front, and once the new version is in place the page reloads into it, unless a form is open
 // (then it says so and waits, so nothing typed is lost).
-if ('serviceWorker' in navigator && import.meta.env.PROD && location.protocol !== 'file:') {
+// The Mac app has no use for one: its page is in the app itself, and WebKit registers none at the app's address.
+if ('serviceWorker' in navigator && import.meta.env.PROD && location.protocol !== 'file:' && !shell) {
   const hadOne = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.register(asset('sw.js')).then(registration => {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') registration.update().catch(() => {}); });

@@ -72,7 +72,16 @@ pub async fn test_wait(ms: u64) {
 #[tauri::command]
 pub fn test_grant(app: AppHandle, path: String) -> Result<(), String> {
     let root = std::env::var("FF_TEST_ROOT").map_err(|_| "FF_TEST_ROOT is not set".to_string())?;
-    let (root, real) = (fs::canonicalize(root).map_err(|error| error.to_string())?, fs::canonicalize(&path).map_err(|error| error.to_string())?);
+    let root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    // A file that a save dialog would name is not there yet: its folder is looked at, and its name kept.
+    let asked = Path::new(&path);
+    let real = match fs::canonicalize(asked) {
+        Ok(real) => real,
+        Err(_) => match (asked.parent(), asked.file_name()) {
+            (Some(folder), Some(name)) => fs::canonicalize(folder).map_err(|error| error.to_string())?.join(name),
+            _ => return Err("not a path".into()),
+        },
+    };
     if !real.starts_with(&root) {
         return Err("only FF_TEST_ROOT may be granted".into());
     }

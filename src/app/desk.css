@@ -1,0 +1,28 @@
+/* The Mac app's own screens (desk.js): a bar across the top, and under it either the page that fills forms or one
+   of the app's screens. Nothing here is loaded on the web page. */
+#desk { max-width: 980px; margin: 0 auto; padding: 10px 16px 0; }
+.desk-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.desk-bar .tabs, .desk-bar .lock-state { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.desk-bar .tab { background: transparent; color: inherit; border: 1px solid transparent; min-height: 40px; }
+.desk-bar .tab.on { background: var(--green); color: #fff; }
+.desk-bar .lock { color: var(--muted); font-size: .9rem; font-weight: 600; }
+.desk-bar .lock-state button { min-height: 36px; }
+.desk-screen { padding-bottom: 60px; }
+.desk-screen .rows { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+.desk-screen .rows li { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; overflow-wrap: anywhere; }
+.desk-screen .rows button, .desk-screen .item button, .desk-screen p button { min-height: 34px; padding: 0 10px; font-size: .9rem; margin: 2px 0 2px 4px; }
+.desk-screen .item { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin: 6px 0; }
+.desk-screen .item summary { font-weight: 600; overflow-wrap: anywhere; }
+.desk-screen .item ul { margin: 6px 0; padding-left: 1.2em; overflow-wrap: anywhere; }
+.desk-screen .item .move { display: inline-flex; align-items: center; gap: 6px; font-size: .9rem; color: var(--muted); }
+.desk-screen .item .move input { font: inherit; min-height: 34px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; color: inherit; background: #fff; }
+.desk-screen .adding { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 6px; }
+.desk-screen .note.warn { background: #fdecea; border-color: #f0b4ac; }
+#app[hidden] { display: none; }
+@media (prefers-color-scheme: dark) { .desk-screen .item .move input { background: #0f1513 !important; color: #e6efe9 !important; } .desk-screen .note.warn { background: #3a1d19; border-color: #7a3b33; color: #fdd; } }
+/* The recovery key printed alone, from the setup screen. */
+@media print {
+  html.print-desk-key #desk-key, html.print-desk-key #desk-key * { visibility: visible; }
+  html.print-desk-key #desk-key { position: absolute; left: 0; top: 0; border: 0; }
+  html.print-desk-key #desk-key .tools { display: none; }
+}

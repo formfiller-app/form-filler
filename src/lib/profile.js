@@ -59,3 +59,14 @@ export function autofill(blanks, profile, { today = new Date(), dateStyle = prof
   });
   return out;
 }
+
+// The privacy wall's fifth part: the details kept off the screen until you ask to see them. A name, a date of birth
+// and a street address are on the never-list; an e-mail address, a phone number, a city, a state and a ZIP code are
+// not.
+export const MASKED = ['fullName', 'firstName', 'lastName', 'address', 'birthDate'];
+// A value as it is shown while it is hidden: its last four characters, behind a dot for each of the rest. A short
+// value shows less, so that it is never mostly given away: its last two characters up to eight long, none up to four.
+export function masked(value) {
+  const letters = [...String(value ?? '')], shown = letters.length > 8 ? 4 : letters.length > 4 ? 2 : 0;
+  return '\u2022'.repeat(letters.length - shown) + letters.slice(letters.length - shown).join('');
+}

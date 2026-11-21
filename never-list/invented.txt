@@ -2,3 +2,4 @@
 # One to a line; a note may follow after " # ". A value listed here is let through by the never-list gate.
 # Only invented values belong here. For a Social Security number use one that was never issued, such as
 # 987-65-4321: the gate lets those through without listing them.
+02/30/1980 # Jane Roe's date of birth in the Mac app's walks (scripts/walk-mac.cjs, tests/shell/selftest.js): a day that never was
