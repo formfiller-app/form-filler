@@ -125,14 +125,21 @@ backup.
 
 2. RESTORE WITH FORM FILLER
 
+In the Mac app: open Backups, press "Restore from a backup somewhere
+else", and choose this folder. On a Mac where the app has no vault yet,
+its first screen offers "Restore from a backup instead".
+
+From the command line:
+
     form-filler backup restore "THIS FOLDER" --data "DATA" --archive "ARCHIVE"
 
 DATA is Form Filler's data folder, and ARCHIVE is where the archive goes.
-It asks for the passphrase you had when this backup was made, or your
-recovery key; checks every file before anything is moved; and never
-overwrites anything: if an archive or a vault is there already, the
-restored copy goes beside it, named "... (restored YYYY-MM-DD HHMM)" for
-the minute this backup was made.
+
+Either way it asks for the passphrase you had when this backup was made,
+or your recovery key; checks every file before anything is moved; and
+never overwrites anything: if an archive or a vault is there already,
+the restored copy goes beside it, named "... (restored YYYY-MM-DD HHMM)"
+for the minute this backup was made.
 
 
 3. RESTORE WITHOUT FORM FILLER

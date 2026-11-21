@@ -44,7 +44,14 @@ const archiveFiles = async (kept = holder()) => { if (kept === 'home') await cal
 const dataFiles = () => tauriFiles(tauri, where.data);
 const shown = path => !path ? '' : path === where.home ? 'your home folder' : path.startsWith(where.home + '/') ? '~' + path.slice(where.home.length) : path;
 const nameOf = path => path.slice(path.lastIndexOf('/') + 1);
-const field = name => root.querySelector('[name="' + name + '"]')?.value || '';
+// A box's value by its name. The name is compared, not put into a selector: an item's path may hold a quote.
+const field = name => [...root.querySelectorAll('input[name], select[name]')].find(box => box.name === name)?.value || '';
+// A folder picked to hold the archive must not be the archive itself: a second one would be made inside it.
+const asHolder = chosen => {
+  if (!chosen || nameOf(chosen) !== ARCHIVE) return chosen;
+  said = h('That folder is named “' + ARCHIVE + '” itself. Choose the folder it is in, or is to be in.'); warned = true; draw();
+  return null;
+};
 const grouped = key => key.slice(0, 16) + ' ' + key.slice(16).match(/.{1,6}/g).join(' ');
 const panel = (title, body) => '<section class="panel"><h2>' + title + '</h2>' + body + '</section>';
 const tools = (...buttons) => '<div class="tools">' + buttons.filter(Boolean).join('') + '</div>';
@@ -79,11 +86,14 @@ function draw() {
   drawn = screen;
   ctx.app.hidden = screen !== 'form';
   const tab = (name, title) => '<button type="button" class="tab' + (screen === name || (name === 'backup' && screen === 'restore') || (name === 'archive' && screen === 'filing') ? ' on' : '') + '" data-go="' + name + '">' + title + '</button>';
-  const lock = state === 'open' ? '<span class="lock">Unlocked</span>' + button('lock', 'Lock now') : state === 'locked' ? '<span class="lock">Locked</span>' : state === 'none' && screen !== 'setup' ? '<button type="button" class="secondary" data-go="setup">Set up</button>' : '';
+  const lock = state === 'open' ? '<span class="lock">Unlocked</span>' + button('lock', 'Lock now') : state === 'locked' ? '<span class="lock">Locked</span>' : state === 'none' && screen !== 'setup' ? '<button type="button" class="secondary" data-go="setup">Set up</button>'
+    : state === 'unavailable' ? '<span class="lock warn">The vault’s folder could not be reached</span>' + button('reload', 'Try again') : '';
+  // Something that went wrong is said wherever you are, the form page included; other notes belong to their screen.
+  const note = said && (warned || screen !== 'form') ? '<div class="note' + (warned ? ' warn' : '') + '" role="status">' + said + '</div>' : '';
   root.innerHTML = '<nav class="desk-bar" aria-label="Form Filler"><div class="tabs">' + tab('form', 'Fill a form') + tab('locker', 'Locker') + tab('archive', 'Archive') + tab('backup', 'Backups') + '</div><div class="lock-state">' + lock + '</div></nav>' +
-    (screen === 'form' ? '' : '<main class="desk-screen">' +
+    (screen === 'form' ? note : '<main class="desk-screen">' +
       (working ? '<div class="busy" role="status"><span id="desk-working">' + h(working) + '</span><div class="bar"><i></i></div>' + (stopper ? tools(button('stop', 'Stop')) : '') + '</div>' : '') +
-      (said ? '<div class="note' + (warned ? ' warn' : '') + '" role="status">' + said + '</div>' : '') + (where ? SCREENS[screen]() : '<p class="subtle">Opening…</p>') + '</main>');
+      note + (where ? SCREENS[screen]() : '<p class="subtle">Opening…</p>') + '</main>');
   for (const [name, value] of typed) { const box = [...root.querySelectorAll('input[name], select[name]')].find(item => item.name === name); if (box && value !== '') box.value = value; }
 }
 
@@ -216,14 +226,16 @@ function backupScreen() {
     (checking?.path === entry.path ? '<div class="details unlock"><label>The passphrase you had when it was made, or your recovery key<input type="password" name="check-secret" autocomplete="current-password" data-enter="check-go"></label></div>' + tools(button('check-go', 'Open it and check every file', { kind: 'primary' })) : '') + '</li>';
   return panel('Backups', what + '<p>They go to <b>' + h(shown(to)) + '</b>, in a folder named “' + BACKUPS + '”.' + (last ? ' The last one was made ' + h(whenWords(last)) + '.' : '') + '</p>' +
     (need || tools(button('backup-now', 'Back up now', { kind: 'primary' }), button('backup-choose', 'Choose another place…'))) + IN_VIEW +
-    (backups === null ? '<p class="subtle">Looking for backups there…</p>' : backups.problem ? '<p class="warn">That place could not be read: ' + h(backups.problem) + '</p>'
+    (backups === null ? '<p class="subtle">Looking for backups there…</p>' : backups.problem ? '<p class="warn">' + h(backups.problem) + '</p>' + tools(button('backups-again', 'Look again'))
       : (backups.backups.length ? '<h3>The backups there</h3><ul class="rows">' + [...backups.backups].reverse().map(row).join('') + '</ul>' : '<p>There is no backup there yet.</p>') +
         (backups.unfinished.length ? '<p class="subtle">A backup that was stopped left ' + backups.unfinished.length + ' unfinished folder' + (backups.unfinished.length === 1 ? '' : 's') + ' there (' + h(backups.unfinished.map(nameOf).join(', ')) + '). They can be deleted in Finder.</p>' : '')) + elsewhere);
 }
 async function readBackups() {
   const to = settings().backup?.to;
   if (!to) { backups = null; return draw(); }
-  try { backups = await listBackups(tauriFiles(tauri, to)); } catch (error) { backups = { problem: error.message || String(error) }; }
+  // A place that is not there is said to be so (a drive not plugged in), not taken for a place with no backups.
+  try { const files = tauriFiles(tauri, to); backups = (await files.stat('')) ? await listBackups(files) : { problem: shown(to) + ' is not there now. If it is a drive, plug it in, then press “Look again”.' }; }
+  catch (error) { backups = { problem: 'That place could not be read: ' + (error.message || String(error)) }; }
   draw();
 }
 // The backups in a folder that was picked: the folder of one backup, a "Form Filler Backups" folder, or a drive or
@@ -274,9 +286,21 @@ const ACTIONS = {
   },
   'key-kept'() { ctx.keeper.keptKey(); },
   'archive-home': () => keepArchiveIn('home'),
-  async 'archive-choose'() { const chosen = await pickFolder('Choose the folder that will hold “' + ARCHIVE + '”'); if (chosen) { picked = chosen; draw(); } },
+  async 'archive-choose'() { const chosen = asHolder(await pickFolder('Choose the folder that will hold “' + ARCHIVE + '”')); if (chosen) { picked = chosen; said = ''; warned = false; draw(); } },
   'archive-use': () => picked && keepArchiveIn(picked),
-  async 'archive-elsewhere'() { const chosen = await pickFolder('Choose the folder that holds “' + ARCHIVE + '”'); if (chosen) await keepArchiveIn(chosen).then(() => readShelf({ again: true })); },
+  // The archive is somewhere else than the settings say: the folder that holds it is picked, and the archive must be
+  // there already. Nothing is made: a new, empty archive taken for the old one would hide every paper in the old one.
+  async 'archive-elsewhere'() {
+    const chosen = asHolder(await pickFolder('Choose the folder that holds “' + ARCHIVE + '”'));
+    if (!chosen) return;
+    await run('Looking for your archive there…', async () => {
+      if ((await tauriFiles(tauri, chosen).stat(ARCHIVE))?.kind !== 'folder') throw new Error('There is no folder named “' + ARCHIVE + '” in ' + shown(chosen) + '. Nothing was made or changed.');
+      await ctx.store.change({ archive: { ...settings().archive, holder: chosen } });
+      const hint = cloudHint(chosen, where.home);
+      await readShelf({ again: true });
+      said = 'Your archive is ' + h(shown(archivePath(chosen))) + '.' + (hint ? ' That folder looks as if it is copied to ' + h(hint) + '.' : '');
+    });
+  },
   unlock() {
     const secret = field('desk-secret');
     return run('Unlocking…', async () => {
@@ -290,9 +314,10 @@ const ACTIONS = {
     const chosen = await tauri.dialog.open({ multiple: false, title: 'Choose a document for the locker' });
     if (typeof chosen !== 'string') return;
     await run('Reading the document…', async () => {
-      const bytes = new Uint8Array(await call(() => tauri.fs.readFile(chosen)));
-      if (bytes.length > LOCKER_LIMIT) throw new Error('That file is ' + sizeWords(bytes.length) + '. The locker takes documents up to ' + sizeWords(LOCKER_LIMIT) + '.');
-      adding = { name: nameOf(chosen), bytes };
+      // Its size is asked before it is read: a document is held whole in memory while it is sealed.
+      const size = (await call(() => tauri.fs.stat(chosen))).size;
+      if (size > LOCKER_LIMIT) throw new Error('That file is ' + sizeWords(size) + '. The locker takes documents up to ' + sizeWords(LOCKER_LIMIT) + '.');
+      adding = { name: nameOf(chosen), bytes: new Uint8Array(await call(() => tauri.fs.readFile(chosen))) };
     });
   },
   'doc-cancel'() { adding = null; draw(); },
@@ -314,6 +339,7 @@ const ACTIONS = {
     if (path) said = 'A copy of “' + h(entry.title) + '” was saved as ' + h(shown(path)) + '. The one in the locker stays there.';
   }),
   'shelf-again': () => run('Reading every record in the archive…', () => readShelf({ again: true })),
+  'backups-again': () => run('Looking for backups there…', readBackups),
   'shelf-check': () => run('Reading every file in the archive again…', async () => {
     if (!shelf?.book) await readShelf();
     const report = await shelf.book.verify();
@@ -393,17 +419,23 @@ const ACTIONS = {
     restoring = { name: target.dataset.name, path: path.startsWith('/') ? path : settings().backup.to + '/' + path };
     screen = 'restore'; said = ''; draw(); root.querySelector('[name="restore-secret"]')?.focus();
   },
-  async 'restore-holder'() { const chosen = await pickFolder('Choose the folder that will hold “' + ARCHIVE + '”'); if (chosen && restoring) { restoring.holder = chosen; draw(); } },
+  async 'restore-holder'() { const chosen = asHolder(await pickFolder('Choose the folder that will hold “' + ARCHIVE + '”')); if (chosen && restoring) { restoring.holder = chosen; said = ''; warned = false; draw(); } },
   'restore-go'() {
     const secret = field('restore-secret');
     return restoring?.path && run('Restoring…', async signal => {
     const kept = restoring.holder || holder() || 'home';
     if (!secret) throw new Error('Type the passphrase you had when this backup was made, or your recovery key.');
     const tell = meter('Restoring…');
-    const result = await restoreBackup({ backup: tauriFiles(tauri, restoring.path), secret, data: counted(dataFiles(), tell), archive: { parent: counted(holderFiles(kept), tell), name: ARCHIVE }, signal });
-    // The settings may have just been put back from the backup: they are read again before anything is written to
-    // them, and then say where the archive now is, if it was put in place.
-    await ctx.store.reload();
+    let result;
+    try { result = await restoreBackup({ backup: tauriFiles(tauri, restoring.path), secret, data: counted(dataFiles(), tell), archive: { parent: counted(holderFiles(kept), tell), name: ARCHIVE }, signal }); }
+    finally {
+      // Whether it finished or stopped part-way, the settings and the vault on the disk may no longer be what the
+      // page has in memory: both are looked at again before anything else is done, so that nothing just put back
+      // is written over, and a vault that is back is seen to be there.
+      await ctx.store.reload().catch(() => {});
+      await ctx.keeper.recheck('changed').catch(() => {});
+    }
+    // The settings, read again, then say where the archive now is, if it was put in place.
     if (result.placed.some(item => item.what === 'archive' && !item.beside) && settings().archive?.holder !== kept) await ctx.store.change({ archive: { ...settings().archive, holder: kept } });
     restoring = { ...restoring, result: restoredWords(result, shown(holderPath(kept))) };
     }, { stoppable: true });
@@ -446,7 +478,8 @@ export function start(context) {
   let last = '';
   const decide = () => { if (!decided && where && context.keeper.state !== 'checking') { decided = true; if (context.keeper.state === 'none' && !holder()) screen = 'setup'; } };
   draw();
-  void places().then(async found => { await context.store.ready.catch(() => {}); where = found; decide(); draw(); }, error => { said = h('The app could not say where its folders are: ' + (error.message || error)); warned = true; draw(); });
+  void places().then(async found => { await context.store.ready.catch(() => {}); where = found; decide(); draw(); },
+    error => { said = h('The app could not say where its folders are, so nothing can be kept or read: ' + (error.message || error) + ' ') + button('reload', 'Try again'); warned = true; draw(); });
   return {
     changed() {
       const now = context.keeper.state + (context.keeper.recoveryKey ? ' key' : '');

@@ -76,6 +76,12 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
       await refused(call(() => invoke('name_file', { from: dir + '/plain.txt', to: dir + '/renamed.txt' })), 'EFORBIDDEN', 'name_file');
       await refused(call(() => invoke('reveal', { path: dir })), 'EFORBIDDEN', 'reveal');
       await refused(files.list(''), 'EFORBIDDEN', 'the interface');
+      // Of what is outside the granted folders the page is told nothing, not even whether it is there.
+      for (const path of ['/etc/hosts', '/etc/no such file here', root + '/outside/secret.txt', root + '/outside/no such file']) {
+        await refused(call(() => invoke('real_path', { path })), 'EFORBIDDEN', 'real_path of ' + path);
+        await refused(call(() => invoke('settle', { path })), 'EFORBIDDEN', 'settle of ' + path);
+        await refused(call(() => invoke('name_file', { from: path, to: dir + '/taken.txt' })), 'EFORBIDDEN', 'name_file from ' + path);
+      }
     });
     await invoke('test_grant', { path: dir });
     await invoke('test_grant', { path: root + '/other' });
@@ -84,6 +90,7 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
         .map(([name, kind]) => ({ name, kind })), 'the listing, hidden names too');
       same(await files.stat('plain.txt'), { kind: 'file', bytes: 5 });
       same(await files.stat('no such file'), null); same(await files.stat('plain.txt/inside a file'), null);
+      await refused(call(() => invoke('real_path', { path: dir + '/no such file' })), 'ENOENT', 'inside a granted folder, what is not there is said to be not there');
       for (const name of ['a link.txt', 'way nowhere', 'way out', 'way to granted']) same(await files.stat(name), { kind: 'other', bytes: 0 }, name);
       same(words(await files.read('plain.txt')), 'plain');
       same(words(await readAll(files.readStream('plain.txt'))), 'plain');
@@ -214,6 +221,12 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
     const folder = places.data + '/vault', store = tauriStore(tauri, folder), data = tauriFiles(tauri, places.data);
     await step('the app\'s data folder is its own from the start; the store writes whole files there and keeps the copy before', async () => {
       same(await store.get('vault.json'), null); same(await store.list(), []);
+      // The app's own list of the folders that were picked lives in the data folder, and is never the page's.
+      for (const name of ['.persisted-scope', '.persisted-scope-asset']) {
+        await refused(call(() => fs.writeFile(places.data + '/' + name, bytes('anything'))), 'EFORBIDDEN', 'writing ' + name);
+        await refused(call(() => fs.readFile(places.data + '/' + name)), 'EFORBIDDEN', 'reading ' + name);
+        await refused(call(() => fs.rename(places.data + '/settings.json', places.data + '/' + name)), 'EFORBIDDEN', 'renaming onto ' + name);
+      }
       await store.put('locker/index.age', bytes('one')); await store.put('locker/index.age', bytes('two'));
       await store.put('profile.age', bytes('first')); await store.put('profile.age', bytes('second'), { prev: false });
       same([words(await store.get('locker/index.age')), words(await store.get('locker/index.age.prev')), words(await store.get('profile.age')), await store.get('profile.age.prev')], ['two', 'one', 'second', null]);

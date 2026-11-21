@@ -48,24 +48,36 @@ fn allowed(app: &AppHandle, real: PathBuf, asked: &Path) -> Result<PathBuf, Stri
         Err(forbidden(asked))
     }
 }
+// What went wrong at a path, said as it is only inside a folder the page was granted. Of anything else on the disk
+// the page is told nothing, not even whether it is there: the answer is the same "forbidden".
+fn told(app: &AppHandle, doing: &str, path: &Path, error: Error) -> String {
+    let scope = app.fs_scope();
+    if path.is_absolute() && scope.is_allowed(path) && !scope.is_forbidden(path) {
+        said(doing, path, error)
+    } else {
+        forbidden(path)
+    }
+}
 // What is at `path` now, with every link followed.
 fn granted(app: &AppHandle, path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(forbidden(path));
     }
-    let real = fs::canonicalize(path).map_err(|error| said("find what is", path, error))?;
-    allowed(app, real, path)
+    match fs::canonicalize(path) {
+        Ok(real) => allowed(app, real, path),
+        Err(error) => Err(told(app, "find what is", path, error)),
+    }
 }
 // The folder of a name that may not be there yet, with every link followed, and the name: the name itself is never
 // followed, so a link standing at it is something that has the name, not a way to somewhere else.
-fn folder_and_name(path: &Path) -> Result<PathBuf, String> {
+fn folder_and_name(path: &Path) -> Result<PathBuf, Error> {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
-        return Err(forbidden(path));
+        return Err(Error::from(ErrorKind::InvalidInput));
     };
     if !path.is_absolute() {
-        return Err(forbidden(path));
+        return Err(Error::from(ErrorKind::InvalidInput));
     }
-    Ok(fs::canonicalize(folder).map_err(|error| said("find the folder", folder, error))?.join(name))
+    Ok(fs::canonicalize(folder)?.join(name))
 }
 
 // The names Form Filler itself makes in the folder that holds the archive: the archive; a copy a restore put beside
@@ -189,21 +201,38 @@ fn home_names(app: AppHandle) -> Result<Vec<Named>, String> {
     own_names_in(&home_folder(&app)?)
 }
 
+// A file written through to the disk. On a Mac the standard library asks for the strongest kind of sync
+// (F_FULLFSYNC), which some disks cannot give (a network share, some drives): there the plain kind is asked for
+// instead, as Node does, so that a backup onto such a disk is not refused.
+fn written_through(path: &Path) -> Result<(), Error> {
+    use std::os::fd::AsRawFd;
+    let file = File::open(path)?;
+    match file.sync_all() {
+        Err(error) if matches!(error.raw_os_error(), Some(code) if [libc::ENOTSUP, libc::EOPNOTSUPP, libc::ENOTTY, libc::EINVAL, libc::ENODEV].contains(&code)) => {
+            if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
+                Ok(())
+            } else {
+                Err(Error::last_os_error())
+            }
+        }
+        done => done,
+    }
+}
 #[tauri::command]
 fn settle(app: AppHandle, path: String) -> Result<(), String> {
     let real = granted(&app, Path::new(&path))?;
-    File::open(&real).and_then(|file| file.sync_all()).map_err(|error| said("write through to the disk the file", &real, error))
+    written_through(&real).map_err(|error| said("write through to the disk the file", &real, error))
 }
 
 #[tauri::command]
 fn name_file(app: AppHandle, from: String, to: String) -> Result<(), String> {
     let (from, to) = (Path::new(&from), Path::new(&to));
-    let kind = fs::symlink_metadata(from).map_err(|error| said("find the file", from, error))?.file_type();
+    let source = granted(&app, from)?;
+    let kind = fs::symlink_metadata(from).map_err(|error| told(&app, "find the file", from, error))?.file_type();
     if !kind.is_file() {
         return Err(format!("only a plain file is given a name, and this is not one: {}", from.display()));
     }
-    let source = granted(&app, from)?;
-    let target = folder_and_name(to)?;
+    let target = folder_and_name(to).map_err(|error| told(&app, "find the folder of", to.parent().unwrap_or(to), error))?;
     // Taken already, by anything at all: said before the scope is asked, which would follow a link standing there.
     if fs::symlink_metadata(&target).is_ok() {
         allowed(&app, target.parent().unwrap_or(&target).to_path_buf(), to)?;
@@ -316,6 +345,14 @@ pub fn run() {
             let data = data_folder(&handle)?;
             fs::create_dir_all(&data)?;
             handle.fs_scope().allow_directory(&data, true)?;
+            // The folders you have picked are remembered in a file of the app's own (the persisted-scope plugin
+            // keeps it in the data folder). It is never the page's to read or write: a page that could write it
+            // could grant itself any folder at the next start.
+            for folder in [data.clone(), app.path().app_data_dir()?] {
+                for name in [".persisted-scope", ".persisted-scope-asset"] {
+                    handle.fs_scope().forbid_file(folder.join(name))?;
+                }
+            }
             let title = app.config().product_name.clone().unwrap_or_else(|| "Form Filler".into());
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title(title)
@@ -449,6 +486,16 @@ mod tests {
         assert_eq!(folder_and_name(&folder.join("real").join("a link")).unwrap(), folder.join("real").join("a link"));
         assert!(folder_and_name(Path::new("relative/name")).is_err());
         assert!(folder_and_name(&folder.join("missing").join("name")).is_err(), "a folder that is not there");
+        fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn a_file_is_written_through_to_the_disk() {
+        let folder = scratch("settle");
+        fs::write(folder.join("a file"), b"written").unwrap();
+        written_through(&folder.join("a file")).unwrap();
+        assert_eq!(fs::read(folder.join("a file")).unwrap(), b"written");
+        assert!(written_through(&folder.join("no such file")).is_err());
         fs::remove_dir_all(folder).unwrap();
     }
 

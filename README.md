@@ -5,10 +5,12 @@ edit, a print-ready PDF, or printed. It runs in your browser, on your own device
 details are not uploaded anywhere. It installs like an app (Add to Home Screen) and works offline after the first
 visit.
 
-It is also a library and a command-line tool, so other programs can fill forms with it.
+It is also a library and a command-line tool, so other programs can fill forms with it. And since 2.8.0 it is a
+Mac app, built on your own Mac from this repository: the same page in a window of its own, with a locker for your
+documents, an archive of everything you file, and backups. See [The Mac app](#the-mac-app).
 
 **Open it:** <https://formfiller-app.github.io/form-filler/>. The foot of the page names the version you have; this
-README describes 2.7.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
+README describes 2.8.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
 page was at `swixixle.github.io/form-filler/`. If you used it there, start again at the new address and add it to your
 home screen from there; [Privacy](#privacy) says how to remove what the old one kept.
 
@@ -88,6 +90,50 @@ fingerprints.
   on a wide screen, and ⌘S / Ctrl+S downloads the editable PDF.
 - **From another program.** A link can carry the answers: `https://…/form-filler/#answers=Jane%20Roe.%20555-0100`.
 
+## The Mac app
+
+The same page in a window of its own on a Mac, with what a web page cannot have: real folders. There is no download
+yet: it is built from this repository on your own Mac ([Run it](#run-it)). A bar across the top goes between filling
+a form and what the app keeps:
+
+- **Your vault** is made the first time the app opens. A passphrase locks it, and a recovery key, shown once and
+  printable, is the only other way in. It holds your details, your signature and the locker, in the
+  [age](https://age-encryption.org) format, in the app's own data folder
+  (`~/Library/Application Support/io.github.formfiller-app.form-filler/`). It locks again after 15 minutes left alone.
+- **The locker** is for documents you want kept locked away: an ID, a licence, last year's return. Add one, see the
+  list, save a copy back out. Nothing is removed from it in this version.
+- **The archive** is one plain folder, `~/Form Filler Archive` unless you choose another place for it, that reads
+  sensibly in Finder and needs no app. After you save a filled PDF, *File this PDF in the archive…* files it with the
+  form it was made from, in a matter you name (or in `_Unsorted`), with a record and a fingerprint of each file. The
+  Archive screen lists everything by matter, shows an item in Finder, moves it to another matter, and reads every
+  file again to compare it with its fingerprint. Nothing in the archive is ever deleted or written over.
+- **Backups** are each one sealed copy of the archive, the vault, the forms the app remembers and its settings, on a
+  drive or folder you pick. *Check the copy* compares it with its fingerprints; *Check it fully…* opens it with your
+  passphrase and checks every file in it. *Restore…* checks every file before anything is moved, and overwrites
+  nothing: what is there already stays, and the restored copy goes beside it. Form Filler never deletes a backup.
+  The first screen of a new installation offers *Restore from a backup instead*.
+
+In the app your name, date of birth and street address are shown by their last four characters (fewer for a short
+value), in *Your details* and on the filled form, until you press *Show them*. The PDF always carries them whole, and
+printing shows them first.
+
+What the app can reach: its own data folder; a folder you pick in one of its dialogs; and, in your home folder, only
+folders named `Form Filler Archive…`, with a hidden work folder while a restore runs. Its window opens no web address
+and fetches nothing from one. That is why *Read handwriting*, which downloads its model, is left out of the app.
+
+What to know before relying on it:
+
+- **It has been clicked through by scripts, not yet by a person.** Every screen is walked in two browsers over a
+  stand-in for the app, and again inside the app itself against its real file code ([Tested](#tested-in-webkit-and-chromium)).
+  The Mac's own panels (choosing a folder, choosing a file, naming a file to save, printing) have not been clicked.
+- **It is slower while its window cannot be seen.** macOS slows the page of a window that is hidden, minimized or
+  covered: a backup, a check or a restore then takes several times as long, and a PDF waits to be read until the
+  window is shown. In view, a made-up archive of 2 GB in 8,720 files was backed up in 55 s, checked fully in 32 s
+  and restored in 85 s.
+- **It is signed only by the build itself**, not with a developer's certificate, so it runs on the Mac that built it;
+  macOS may ask again whether it may use a folder in Documents, on the Desktop or on another drive after each build.
+- **A backup is as large as what it copies**, each time; thinning old ones is yours to do.
+
 ## Privacy
 
 - **It runs on your device.** The form, your answers, your details and your signature are read and filled in the
@@ -122,6 +168,10 @@ fingerprints.
   should turn into that page the next time it is opened with a connection. A copy on an iPhone or iPad home screen
   keeps storage of its own, apart from Safari's: open it once more, press *Remove it all* there too, then delete it.
   Clearing your browser's stored data for `swixixle.github.io` removes it all as well.
+- **In the Mac app**, what the page keeps is not in a browser at all: the vault, the forms it remembers and its
+  settings are files in the app's own data folder, and the archive is a folder you own. The archive is plain files,
+  by design, so it is as private as the disk it is on (FileVault) and as its backups, which are sealed. The app
+  warns if the folder you choose for it looks like one a syncing service copies to its servers.
 - **The repository holds nothing personal.** Tests, fixtures and pictures use invented people and invented forms only.
   A gate checks every commit before it is made, and again on GitHub, for the shapes of Social Security, routing and
   account numbers, dates of birth, real e-mail addresses, and any picture or PDF not listed as invented. On the
@@ -156,15 +206,28 @@ of the "Q" in "Qty" for a checkbox, so every later answer landed one blank late:
 
 <img src="docs/images/webkit-qty.png" alt="The same table of an invented form in WebKit: before the fix, a blank numbered 4 on the Q of Qty and the cells numbered 5 to 10; now, the cells numbered 4 to 9">
 
+The Mac app's own screens are walked too. `scripts/walk-mac.cjs` clicks through them in Chromium and in WebKit, in
+11 steps: first-run setup; your details kept locked and shown hidden; a form filled, its PDF saved and filed; the
+archive checked and an item moved; the locker; a backup made and checked fully; everything moved aside and restored
+byte for byte; a second restore that goes beside; and the vault forgotten. In that walk the app itself is stood in
+for (`tests/tauri-stand-in.js`, written from the file plugin's source), and its dialogs answer with the folder the
+walk names. `npm run mac:check` then runs inside the app itself, in a test build, against its real file plugin: 17
+checks of the file code (every promise the command line's file interface makes; the home folder reachable only by
+Form Filler's own names; the page under the app's content policy, with nothing fetched), and the screens clicked
+through by a script in a first run of their own (6 steps), also when the app is started as Finder starts it. The
+checks on GitHub run the walk of the screens in both engines and the app's Rust tests; the app itself is started only
+on a Mac at hand.
+
 With `--handwriting` the walk also reads two synthetic handwritten pages (35 steps; it downloads the 64 MB model). The
-library and the command line have 326 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+library, the command line and the app's file code have 369 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without
 it.
 
 Not tested: a real iPhone or a real Safari (Playwright's WebKit build stands in for them), real handwriting, and real
-forms.
+forms. In the Mac app: anything that needs a click in one of the Mac's own panels (choosing a folder or a file,
+naming a file to save, printing), a real backup drive, and an archive much larger than 2 GB.
 
 ## Plugging it into other programs
 
@@ -381,9 +444,26 @@ npx playwright install chromium webkit   # once: the two browsers the walk drive
 node scripts/walk.cjs dist        # the whole page in Chromium at phone size
 node scripts/walk.cjs dist --engine webkit   # the same in WebKit
 node scripts/walk.cjs dist --handwriting     # also reads the synthetic handwritten pages
+node scripts/walk-mac.cjs dist    # the Mac app's screens, clicked through over a stand-in for the app
+node scripts/walk-mac.cjs dist --engine webkit   # the same in WebKit, the app's own engine
 npm run check:handwriting         # the same reader in Node, with a character error rate
 npm run hooks                     # once, if you will commit: turns on the never-list gate
 ```
+
+The Mac app, on a Mac with Xcode's command line tools and Rust 1.90 or later (through `rustup`):
+
+```sh
+npm run mac:build                 # the page, then the app: src-tauri/target/release/bundle/macos/Form Filler.app
+npm run mac:test                  # the app's Rust tests
+npm run mac:check                 # a test build ("Form Filler Test"), then its checks inside its own window
+npm run mac:dev                   # the app over Vite's server, redrawn as the page's code changes
+```
+
+`mac:build` makes the app's icons from `public/icons/icon-512.png` first, and takes a few minutes the first time
+(cargo downloads and builds Tauri once). Open the app from Finder, or drag it to Applications. `mac:check` uses a
+temporary folder in place of the app's data folder and of your home folder, so it reads and writes nothing of yours;
+its window stays small, in a corner and above the others while it runs, because a window that cannot be seen is
+slowed down.
 
 Each push to `main` that passes the tests publishes the page to GitHub Pages (`.github/workflows/pages.yml`). Or unpack
 a built folder and run `python3 serve.py` (port 8771). On a phone: open the page, then Share → Add to Home Screen
@@ -394,19 +474,12 @@ The test forms and pages in `tests/fixtures` are invented (`scripts/make-fixture
 
 ## Roadmap (planned, not built)
 
-None of this exists yet, except the archive (2.5.0) and backups (2.7.0), each as a library and a command, and the
-vault (2.6.0), which the page uses (all above); the app's screens for them are not built. The plan is in
-[docs/BUILD_PLAN.md](docs/BUILD_PLAN.md); what the code was before it started is in
-[docs/INVENTORY.md](docs/INVENTORY.md), and how the next phase would be built is in
-[docs/PHASE2_PROPOSAL.md](docs/PHASE2_PROPOSAL.md).
+None of this exists yet. The plan is in [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md); what the code was before it started
+is in [docs/INVENTORY.md](docs/INVENTORY.md), and how phase 2 was built (the Mac app, the vault, the archive and
+backups, all above) is in [docs/PHASE2_PROPOSAL.md](docs/PHASE2_PROPOSAL.md).
 
-- **A Mac app** (Tauri) around this page, with real file access.
-- **An encrypted vault** for your profile and a locker of documents, opened with a passphrase, with a printable
-  recovery key.
-- **An archive**: every document that comes in or goes out kept in a plain folder you own, filed by matter, with a
-  record of how it moved and a fingerprint of each file; never deleted, never misfiled.
-- **Encrypted backups**, and a restore tested by wiping and restoring: built as a library and a command (2.7.0), with
-  no screen yet.
+- **Filing by itself**: every PDF made in the app filed as it is made, files dropped into `_Inbox` read and filed,
+  and a matter suggested, with anything uncertain left in `_Unsorted`. Today filing is a button you press.
 - **Pre-flight checks** before anything is sent: empty blanks, missing signatures, dates, conflicts.
 - **The Crab**, a guide on the page that walks the blanks, explains each field from the form's own instructions, and
   says when it cannot check something.
@@ -419,8 +492,10 @@ Where it stands: phase 1 (the inventory) is done. Of phase 2, the never-list gat
 browsers and long PDFs are in 2.2.0, checkbox labels in 2.3.0, tables with tight rows in 2.3.1, and table cells named
 by their headers in 2.4.0. A throwaway spike of the
 Mac app has run ([docs/SHELL_SPIKE.md](docs/SHELL_SPIKE.md)), the archive is built as a library and a command
-(2.5.0), the vault keeps your details locked (2.6.0), and backups are built as a library and a command, with a
-restore tested by wiping and restoring (2.7.0); the app itself is still not started.
+(2.5.0), the vault keeps your details locked (2.6.0), backups are built as a library and a command, with a
+restore tested by wiping and restoring (2.7.0), and the Mac app with its screens for all three is built (2.8.0).
+What phase 2 still lacks is its own check, done by a person on a real document: wipe, restore, and everything comes
+back.
 
 ## Licence
 

@@ -1,5 +1,59 @@
 # Changes
 
+## 2.8.0 (2026-11-21)
+
+- **A Mac app** (phase 2, slice 5): the same page in a window of its own, built with Tauri from `src-tauri/`
+  (`npm run mac:build`), with what a web page cannot have: real folders. There is no download yet: it is built on
+  your own Mac, and is signed only by the build itself. A bar across the top goes between filling a form and the
+  app's own screens:
+  - **First run**: a passphrase makes your vault, the recovery key is shown once and can be printed, and you say where
+    the archive lives (`~/Form Filler Archive`, or a folder you pick, with a warning if that folder is one a syncing
+    service copies elsewhere). Or a backup is restored instead.
+  - **Locker**: a document sealed into the vault, listed, and a copy saved back out, the same bytes. Nothing is
+    removed from it in this version.
+  - **Archive**: everything filed, by matter; an item shown in Finder or moved to another matter; every file read
+    again and compared with its fingerprint.
+  - **File this PDF in the archive…**: after a filled PDF is saved, it is filed with the form it was made from, in a
+    matter you name or in `_Unsorted`, with a record that carries both fingerprints.
+  - **Backups**: made on a drive or folder you pick, read back from it, checked against their fingerprints or opened
+    with your passphrase and checked file by file. **Restore** checks every file before anything is moved and
+    overwrites nothing: what is there stays, and the restored copy goes beside it. With no vault, the backups already
+    made can still be listed, checked and restored.
+- **Your name, date of birth and street address stay off the screen** in the Mac app until you press *Show them*
+  (the privacy wall's fifth part): in *Your details* and on the filled form they show by their last four characters,
+  fewer for a short value. The PDF carries them whole, and printing shows them first.
+- **In the app, everything is in folders a backup carries**: the vault, the forms the page remembers
+  (`templates/<sha256>.json`) and its settings (`settings.json`) are files in the app's data folder, not in a
+  browser's storage.
+- **What the app can reach**: its own data folder, a folder you pick in a dialog, and, in your home folder, only
+  Form Filler's own names (`Form Filler Archive`, a restored copy of it, and a hidden staging folder while a restore
+  runs). Its window opens no web address and fetches nothing from one (a strict content policy), so *Read
+  handwriting*, which downloads its model, is left out of the app.
+- **A file interface for the app** (`src/app/files-tauri.js`, `src/app/store-tauri.js`) with every promise the
+  command line's has. Tauri's file plugin never writes a file through to the disk and has no way to give a file a
+  name only if the name is free, so the app adds those in Rust (about 310 lines in all, where the proposal hoped for
+  a few dozen). Forgetting the vault in the app removes its empty folder too, so a later restore puts the vault back
+  in place.
+- **Tightened after one review**, each with a test: the app's own list of the folders you picked is out of the
+  page's reach (a page that could write it could grant itself any folder at the next start); the app says nothing
+  about a file outside the folders it was granted, not even whether it is there; a file is synced the plain way on a
+  disk that cannot do the strongest kind (a network share), so a backup there is not refused; a lock left by a page
+  that was loaded again is taken over instead of locking the archive until the app is quit; "It is somewhere else…"
+  never makes a new, empty archive; after a restore, finished or not, the settings and the vault are looked at again
+  before anything is written; a document's size is asked before it is read into the locker; a backup drive that is
+  not plugged in is said to be gone, not empty; and details shown only to be printed are hidden again at the next
+  click.
+- **Checks**: the archive's and the vault's own tests also run on the app's files and store; `scripts/walk-mac.cjs`
+  clicks through every screen in Chromium and in WebKit over a stand-in for the app, moving everything aside and
+  restoring it byte for byte; `npm run mac:check` runs the file code and the same clicks inside the app itself,
+  against the real plugin. Not checked: anything that needs a click in a real dialog (the folder, save and file
+  panels, and printing) has not been clicked by a person yet.
+- **Measured in the app**, with its window in view: a made-up archive of 2 GB in 8,720 files is backed up in 55 s,
+  checked fully in 32 s and restored in 85 s. **A window that cannot be seen is several times slower** (macOS slows
+  the page of a hidden, minimized or covered window), and a PDF opened in a hidden window waits to be read until the
+  window is shown. The screens say to keep the window in view.
+- Tests: 369 unit tests (326 before), 8 in Rust; both walks of the web page pass unchanged.
+
 ## 2.7.0 (2026-11-21)
 
 - **Backups, encrypted, and a restore tested by wiping and restoring** (phase 2, slice 4). A backup is one snapshot of

@@ -56,8 +56,15 @@ let desk = null, lastMade = null;
 if (shell) void store.ready.then(() => { useDetails = store.get('useDetails', true) !== false; render(); }, () => {});
 // The Mac app keeps your name, date of birth and street address off the screen until you ask to see them (the privacy
 // wall's fifth part): in Your details and on the filled form they show by their last characters only.
-let revealed = false;
+let revealed = false, shownToPrint = false;
 const hides = key => shell && !revealed && MASKED.includes(key);
+// Shown only to be printed, they are hidden again at the next thing pressed on the page (unless that is the button
+// that hides them, which does it itself).
+if (shell) document.addEventListener('click', event => {
+  if (!shownToPrint) return;
+  shownToPrint = false;
+  if (!event.target.closest?.('[data-reveal]')) { revealed = false; setTimeout(render, 0); }
+}, true);
 // A blank's value as the page shows it: one your details filled, of a hidden kind, by its last characters.
 const seen = (blank, index, value, fixed) => typeof value === 'string' && value && fixed.has(index) && !(blank.id in overrides) && value === fixed.get(index) && hides(detailFor(blank.label)) ? masked(value) : value;
 // Your details and a saved signature are kept locked in this browser with your passphrase, never in plain text
@@ -437,7 +444,7 @@ function printKey() {
 // must carry your details whole.
 function printPage() {
   if (!shell) { window.print(); return; }
-  if (!revealed && !document.documentElement.classList.contains('print-key')) { revealed = true; render(); }
+  if (!revealed && !document.documentElement.classList.contains('print-key')) { revealed = true; render(); setTimeout(() => { shownToPrint = true; }, 0); }
   void tauri.invoke('print_page').catch(error => { note = 'The page could not be printed: ' + (error.message || error); render(); });
 }
 function mergePanel() {

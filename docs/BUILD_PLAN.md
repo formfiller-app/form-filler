@@ -57,8 +57,10 @@ one step further than the wording above: the local file holds no real value, onl
 and 6 are part of phase 2 ([PHASE2_PROPOSAL.md](PHASE2_PROPOSAL.md)); item 4 binds phase 4; item 3 is already how the
 repository works, and the gate now enforces it for pictures and PDFs. Item 6's web half is built: since 2.6.0 the web
 version encrypts what it stores, and since 2026-11-21 the live page has a web address of its own,
-`formfiller-app.github.io`, so it no longer shares storage with your other github.io pages. The Mac app is still to
-come.
+`formfiller-app.github.io`, so it no longer shares storage with your other github.io pages. The Mac app (2.8.0) is
+the rest of items 1, 5 and 6: its vault is in the app's own data folder and its archive in `~/Form Filler Archive/`,
+your name, date of birth and street address show their last four characters until you reveal them, and nothing of
+the page's is in a browser's storage there.
 
 ## Architecture
 
@@ -116,8 +118,9 @@ the e-file route.
 
 Status: phase 1 is done (branch `phase-1-inventory`). Phase 2 has started on branch `phase-2` with the never-list
 gate and "slice 0" (the reader's defects in WebKit, older browsers and long PDFs). The Tauri shell's throwaway spike
-has run ([SHELL_SPIKE.md](SHELL_SPIKE.md)); of the shell itself the groundwork is built on branch `phase-2-shell`
-(the app, its file interface and its checks), and its screens have not started. The archive is built as a library and a
+has run ([SHELL_SPIKE.md](SHELL_SPIKE.md)), and the shell itself is built on branch `phase-2-shell` (2.8.0, slice 5):
+the app, its screens for setup, the locker, the archive, filing and backups, and your details hidden until you ask.
+What phase 2 still lacks is its check, run by the owner on a real document. The archive is built as a library and a
 command (2.5.0, slice 2), the vault, which keeps the web page's details and signature locked (2.6.0, slice 3), and
 backup and restore, tested by wiping and restoring (2.7.0, slice 4).
 

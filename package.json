@@ -1,6 +1,6 @@
 {
   "name": "form-filler",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
   "license": "MIT",
   "description": "Fill hard forms easily: blanks found from the page or the PDF's own fields, loose answers placed in order, your details and today's date filled, templates, mail merge, handwriting read on the device.",
@@ -28,7 +28,7 @@
     "mac:icons": "tauri icon public/icons/icon-512.png -o src-tauri/icons",
     "mac:dev": "npm run mac:icons && tauri dev",
     "mac:build": "npm run mac:icons && tauri build",
-    "mac:test": "npm run mac:icons && npm run build && cargo test --manifest-path src-tauri/Cargo.toml",
+    "mac:test": "npm run mac:icons && npm run build && cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "mac:check": "npm run mac:icons && tauri build --features testing --config src-tauri/tauri.test.conf.json && node scripts/mac-check.mjs",
     "check:handwriting": "node scripts/check-handwriting.mjs",
     "never-list": "node scripts/never-list.mjs",

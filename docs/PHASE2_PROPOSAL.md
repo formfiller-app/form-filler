@@ -5,9 +5,10 @@ It was written as a proposal. **Status, evening of 2026-11-17:** approved, with 
 [Decisions](#decisions-ruled-2026-11-17). **Status, 2026-11-21:** the never-list gate and slice 0 are built and
 tested. Slice 1, the throwaway shell spike, ran on 2026-11-20 ([SHELL_SPIKE.md](SHELL_SPIKE.md)). Of slices 2 to 4,
 the archive (2.5.0) and backup and restore (2.7.0) are built as library modules with their commands, and the vault
-(2.6.0) as a library module the web page uses. Of the Tauri shell itself, slice 5, the groundwork is built and
-measured on branch `phase-2-shell` ([As built, part 1](#slice-5-as-built-part-1-the-groundwork-2026-11-21)); its
-screens are not started.
+(2.6.0) as a library module the web page uses. The Tauri shell itself, slice 5, is built on branch `phase-2-shell`
+(2.8.0): its groundwork ([As built, part 1](#slice-5-as-built-part-1-the-groundwork-2026-11-21)) and its screens
+([As built, part 2](#slice-5-as-built-part-2-the-screens-2026-11-21)). Slice 6, the owner's own drill on a real
+document, is not done.
 
 Marks: **[V]** verified: run here, read here in the code named, or read on the page linked. (The Tauri and age pages
 were read by a fetch helper whose report is relayed here. The shell spike of 2026-11-20 then ran Tauri, built with
@@ -219,7 +220,7 @@ What is there:
 
 What changed from the proposal, and why:
 
-- **More Rust than "a few dozen lines": about 260, plus 60 only a test build has.** Read in the plugin's code
+- **More Rust than "a few dozen lines": about 310, plus about 100 only a test build has.** Read in the plugin's code
   (`tauri-plugin-fs` 2.7.1), and then run: it never writes a file through to the disk, and it has no way to give a
   file a name only if the name is free (its rename replaces what is there). A vault whose key file was renamed into
   place unsynced could be empty after a power cut, and the archive's first rule is that nothing is overwritten. So the
@@ -298,6 +299,91 @@ them: a folder picked in the folder dialog and still granted after a restart (`-
 a file named in the save dialog, the page's own "Choose the form" button and its file panel (`--run picker`), and
 printing (`--run print`). Also not checked: a backup drive, an archive much larger than 2 GB, the handwriting reader
 (left off in the app: it fetches its model from the web, which the content policy refuses), and `tauri dev`.
+
+### Slice 5, as built, part 2: the screens (2026-11-21)
+
+The slice's check is "you can do all of it by clicking". **[V]** here means clicked by a script: in Chromium and in
+WebKit over a stand-in for the app (`scripts/walk-mac.cjs`, 11 steps), and inside the app itself against its real
+file plugin (`tests/shell/selftest.js`, the 6 steps under "screens"). Nothing has been clicked by a person yet.
+
+What is there (`src/app/desk.js`, with `desk.css`, `desk-words.js` and `platform.js`):
+
+| Screen | What it does | Checked |
+| --- | --- | --- |
+| First run | A passphrase makes the vault; the recovery key is shown once, printable; the archive is made in the home folder, or in a folder that is picked (with a warning if it is one a syncing service copies). Or a backup is restored instead. "Not now" leaves the page usable as on the web | **[V]**, the picked folder in the walk only |
+| Unlock | In the bar, in the locker, and in *Your details* as before: one vault, the page's own keeper | **[V]** |
+| Locker | A document picked, titled, sealed in; the list; a copy saved out, the same bytes; shown only while unlocked. No removal | **[V]** |
+| Archive | The index by matter, newest first; an item's files; show in Finder; move to another matter; check every file; look again (the index made again); what is in the folder unrecorded is told and left | **[V]**; Finder itself not started |
+| File in archive | After a PDF is saved: its title, who it is with, sent or received, a matter or none (then `_Unsorted`); the form and the PDF filed with both fingerprints in the record | **[V]** |
+| Backups | A place picked (refused inside the archive or the data folder); back up, with what is written told as it goes and a Stop; the list; check the copy; check fully with the secret | **[V]**; Stop not tried |
+| Restore | From the list or from a folder picked (one backup, the backups folder, or the drive); the secret; each thing back in place or beside, said in words; then the app is opened again on what was restored | **[V]**: into an empty place, over what is there, and after the vault was forgotten |
+
+Choices made on the way:
+
+- **The archive is always the folder named "Form Filler Archive" in a folder that holds it.** In its usual place
+  the holder is the home folder, reached by Form Filler's own names only. Elsewhere, the folder that is *picked* is
+  the holder, not the archive itself: a restore stages beside the archive, and a pick grants only what was picked.
+  `settings.json` keeps `archive.holder` (`"home"`, or a path) and `backup.to`.
+- **In the app nothing of the page's is in the window's own storage.** The forms it remembers are
+  `templates/<sha256>.json` and its settings are in `settings.json`, in the data folder, answered from memory and
+  written behind; so a backup carries them, and the walk's restore brings back "13 blanks remembered from last
+  time". **[V]** After a restore the settings are read again from the disk before anything is written to them.
+- **Hidden until asked** (the privacy wall's fifth part): `fullName`, `firstName`, `lastName`, `address` and
+  `birthDate`, by their last four characters (two for a value of five to eight, none for four or fewer). In *Your
+  details* a hidden detail has no box of its own, and saving leaves it as it was. On the filled form, a blank your
+  details filled shows hidden and cannot be typed in until shown. The PDF is made from the values themselves, and
+  printing shows them first. Not hidden: e-mail, phone, city, state, ZIP, and anything you type as an answer.
+  The locker's titles are shown as you gave them. In the app only: the web page is as it was.
+- **Saving goes through the save dialog** (a PDF, a template, a CSV, a copy of a locker document), and printing
+  through the app (`print_page`): whether the page's own `window.print()` opens the Mac's print panel there was not
+  tried.
+- **Left out of the app**: the handwriting reader (it fetches its model from the web), and the service worker.
+- **`main.js` changed by 80 lines added and 22 removed**, where the proposal aimed at under about 60 changed: the
+  hiding is most of it. Every change is behind `shell`, which is false on the web.
+- **With no vault, the backups already made are still listed**, and can be checked and restored: that is how a vault
+  that was forgotten comes back. A new backup needs the vault, since it is sealed to its key.
+
+One review, by one reader with nothing but the code and the contracts it must keep (2026-11-21), found eleven
+things. Ten were fixed, each with a test; the walk of the screens, started while it read, found one more:
+
+- The app's own list of picked folders (`.persisted-scope`, kept by the plugin in the data folder) could be written
+  by the page, which could so grant itself any folder at the next start. It is now forbidden to the page. (Found
+  while checking the review's sixth point, not by it.)
+- `settle` asked for the strongest sync only, which a network share refuses: every file made there would have
+  failed, and so a backup. It now falls back to the plain kind, as Node does. **[I]** that such a disk refuses it:
+  from Rust's and libuv's code, not run on one.
+- The app's commands told a missing file from a forbidden one anywhere on the disk. Outside the granted folders the
+  answer is now always "forbidden".
+- The archive's lock names the app's process, but the page holds it: a page loaded again mid-change would have
+  left the archive locked until the app was quit. The lock now carries a token for each loading of the page.
+- "It is somewhere else…" made a new, empty archive in whatever folder was picked. It now only takes a folder that
+  holds one, and no pick may be the archive itself.
+- A restore that stopped after it had put the settings back left the page's memory to write over them; and a vault
+  put back was not seen until the app was opened again. Both are looked at again after any restore.
+- A box's name went into a selector unescaped: an item with a quote in its title could not be moved.
+- The locker read a whole file before asking its size; a backup drive not plugged in read as "no backup there yet";
+  details shown to be printed stayed shown; an error's number was taken from the path if the path held one; a
+  hidden file half-written was left behind in two places.
+- The first answer to "where are the app's folders", if it failed, was kept, and the vault then looked unreachable
+  for good with nothing said. It is asked again, and such a failure is now said on any screen.
+
+Left as a known limit, from that review: `persisted-scope` grants a remembered folder again at each start by its
+path, links followed. So if a folder that was granted is later replaced by a link (by you, or by another program),
+what the link leads to is within the page's reach after a restart. The screens themselves still refuse to write
+through a link. Closing it means the app keeping its own list, with each folder's real path when it was picked.
+
+Not done, or not checked:
+
+- Nothing that needs a click in one of the Mac's own panels: the folder dialog, the file panel behind the page's
+  "Choose the form", the save dialog, and the print panel. In the walk and in the app's own checks a dialog answers
+  with the folder the script names, and the grant a real pick would make is made by the stand-in or by a test command.
+  So that a picked folder is still granted after a restart rests on the spike's run of the same grant.
+- A document cannot be viewed inside the locker, only saved out; an item cannot be added to the archive from a screen
+  except from a PDF just made (the command line's `archive add` does the rest); a file cannot be added to an item
+  from a screen.
+- Stop during a backup or a restore; a backup drive that is unplugged; an archive that is somewhere else than the
+  settings say (the screen offers to say where it is; not walked).
+- The app with the owner's real home folder: every check used a folder standing in for it.
 
 ## Where the logic lives
 
@@ -726,7 +812,7 @@ Each slice ends in something you can check. Sizes are relative, not dates.
 | 2 | Archive module and its tests | Medium | `npm test`; `form-filler archive verify` on a folder you made by hand. **Built** (2026-11-20, 2.5.0): `src/lib/archive.js`, the file interface over Node, and `form-filler archive add`, `file`, `move`, `index`, `verify`; the hand check is yours |
 | 3 | Vault module and its tests, with its browser adapter (privacy wall, part 6) | Medium | `npm test`; the web page keeps no detail or signature in plain text. **Built** (2026-11-20, 2.6.0): `src/lib/vault.js` with stores in memory, in a folder and in IndexedDB; the page keeps your details and signature in it, and the walk checks in both engines that nothing of them is in plain text. Pages at the same address can still script the page while it is open (see "The privacy wall in phase 2"); on 2026-11-21, before 2.6.0 was published, the page moved to an address of its own. The locker has no screen yet (slice 5), and the stock-`age` check came with slice 4, where CI runs it (age 1.1.1 on Linux) |
 | 4 | Backup and restore, with the wipe-and-restore test | Medium | `npm test`, including the stock-`age` check. **Built** (2026-11-21, 2.7.0): `src/lib/backup.js` and `src/lib/tar.js`, `unlockKey` in the vault, `form-filler backup make`, `list`, `verify` and `restore`, and the wipe-and-restore test with each way it must fail safely. The system's tar and the stock checksum tools are checked on the Mac; in CI, on Linux, GNU tar and the stock `age` 1.1.1 open a backup by README.txt's own lines, with the recovery key and with the passphrase (first run 2026-11-21). The hand check is yours |
-| 5 | The shell: setup, unlock, locker, archive list, export into the archive, backup and restore screens, with never-list fields masked (privacy wall, part 5) | Large | You can do all of it by clicking. **Part 1 built** (2026-11-21, branch `phase-2-shell`): the app itself, its file interface and vault store, and the checks that run inside it; no screen yet. See "Slice 5, as built, part 1" |
+| 5 | The shell: setup, unlock, locker, archive list, export into the archive, backup and restore screens, with never-list fields masked (privacy wall, part 5) | Large | You can do all of it by clicking. **Built** (2026-11-21, 2.8.0, branch `phase-2-shell`): the app, its file interface and vault store (part 1), and its screens with your details hidden until asked (part 2), clicked through by scripts in two browsers and inside the app. Not clicked by a person yet, and none of the Mac's own panels. See "Slice 5, as built", parts 1 and 2 |
 | 6 | Your drill on a real document | Yours | Wipe, restore, everything comes back |
 
 Work happens on `phase-2-…` branches. `main` stays releasable throughout.

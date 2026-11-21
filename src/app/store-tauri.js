@@ -54,7 +54,8 @@ export function tauriStore({ fs, invoke }, folder) {
         catch (error) { await drop(kept).catch(() => {}); if (error.code !== 'ENOENT') throw error; }
       }
       const scratch = temp(path);
-      await call(() => fs.writeFile(scratch, bytes, { createNew: true }));
+      try { await call(() => fs.writeFile(scratch, bytes, { createNew: true })); }
+      catch (error) { if (error.code !== 'EEXIST') await drop(scratch).catch(() => {}); throw error; }
       await settled(scratch, path);
       if (!prev) await drop(path + '.prev');
     },

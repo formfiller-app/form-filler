@@ -50,7 +50,9 @@ const PAGE_SIDE = () => {
   const fromBytes = bytes => { let text = ''; for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000)); return btoa(text); };
   const out = value => value instanceof Uint8Array ? { $bytes: fromBytes(value) } : value;
   const back = value => !value || typeof value !== 'object' ? value : '$bytes' in value ? toBytes(value.$bytes) : '$date' in value ? new Date(value.$date) : Array.isArray(value) ? value.map(back) : Object.fromEntries(Object.entries(value).map(([name, item]) => [name, back(item)]));
-  const ask = async (kind, name, args) => { const answer = await window.__ffBridge(kind, name, args); if (answer.error !== undefined) throw answer.error; return back(answer.value); };
+  // The way across to the walk is put into the page by the browser, and may arrive a moment after the page's code.
+  const across = async () => { for (let tries = 0; typeof window.__ffBridge !== 'function'; tries++) { if (tries > 500) throw 'the walk never gave the page its stand-in for the app'; await new Promise(done => setTimeout(done, 10)); } return window.__ffBridge; };
+  const ask = async (kind, name, args) => { const answer = await (await across())(kind, name, args); if (answer.error !== undefined) throw answer.error; return back(answer.value); };
   const files = {};
   for (const name of ['readDir', 'lstat', 'stat', 'readFile', 'writeFile', 'mkdir', 'rename', 'remove', 'copyFile']) files[name] = (...args) => ask('fs', name, args.map(out));
   files.open = async (...args) => {
@@ -107,7 +109,7 @@ const PAGE_SIDE = () => {
   const act = name => page.click('#desk [data-act="' + name + '"]');
   const go = name => page.click('#desk [data-go="' + name + '"]');
   const desk = () => page.locator('#desk').innerText();
-  look = desk;
+  look = async () => (await desk()) + ' | ' + (await page.locator('#app .note').allInnerTexts()).join(' | ');
   // Until the screen says this, with nothing still running.
   const says = (words, timeout = 60000) => page.waitForFunction(wanted => !document.querySelector('#desk .busy') && document.querySelector('#desk').innerText.includes(wanted), words, { timeout });
   const note = (words, timeout = 60000) => page.waitForFunction(wanted => [...document.querySelectorAll('#app .note')].some(item => item.textContent.includes(wanted)), words, { timeout });
@@ -138,6 +140,9 @@ const PAGE_SIDE = () => {
     await page.waitForSelector('#desk [data-act="archive-home"]');
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains('print-desk-key')), false);
     assert.match(await desk(), /~\/Form Filler Archive/);
+    // The folder picked is the one that holds the archive, never the archive itself.
+    answers.push(path.join(home, 'Form Filler Archive')); await act('archive-choose'); await says('Choose the folder it is in, or is to be in.');
+    assert.equal(fs.existsSync(path.join(home, 'Form Filler Archive')), false, 'and nothing was made');
     // Another folder can be chosen, and one that a syncing service would copy elsewhere is warned of.
     fs.mkdirSync(path.join(home, 'Dropbox'));
     answers.push(path.join(home, 'Dropbox')); await act('archive-choose'); await says('copied to Dropbox');
@@ -193,7 +198,9 @@ const PAGE_SIDE = () => {
     await page.click('#print');
     await page.waitForFunction(() => document.querySelector('[data-blank]').value === 'Jane Roe');
     assert.equal(standIn.log.filter(line => line === 'print page').length, prints + 1);
-    await page.click('.filled-panel [data-reveal]');
+    // Shown only to be printed, they are hidden again at the next thing pressed.
+    await page.click('#rules-more summary');
+    await page.waitForFunction(() => document.querySelector('[data-blank]').value === '••••••oe');
   });
 
   await step('the PDF just made is filed in the archive with the form it was made from, in a matter you name', async () => {
@@ -216,7 +223,7 @@ const PAGE_SIDE = () => {
     // With no matter named it waits in _Unsorted.
     await go('form'); await onForm();
     await page.click('#file-it'); await page.waitForSelector('#desk [name="file-with"]');
-    await page.fill('[name="file-title"]', 'A second copy'); await page.fill('[name="file-with"]', 'City Hall');
+    await page.fill('[name="file-title"]', 'A "second" copy'); await page.fill('[name="file-with"]', 'City Hall');
     await act('file-it'); await says('because no matter was named');
     assert.equal(fs.readdirSync(path.join(archive, '_Unsorted')).length, 1);
   });
@@ -240,6 +247,14 @@ const PAGE_SIDE = () => {
     await page.click('#desk [data-act="reveal"][data-path="' + item + '"]');
     await page.waitForFunction(() => true);
     assert.ok(standIn.log.includes('reveal ' + fs.realpathSync(path.join(archive, item))), 'Finder was asked for the item');
+    // An item whose name holds a quote is moved like any other.
+    const [quoted] = fs.readdirSync(path.join(archive, '_Unsorted'));
+    assert.match(quoted, /sent City Hall - A "second" copy$/);
+    await page.click('#desk .item summary >> text=City Hall');
+    await page.locator('#desk .item', { hasText: 'City Hall' }).locator('input').fill('Housing');
+    await page.locator('#desk .item', { hasText: 'City Hall' }).locator('[data-act="move"]').click();
+    await says('Moved to Housing/');
+    assert.ok(fs.existsSync(path.join(archive, 'Housing', quoted, 'record.json')));
     // Something put in the folder by hand is told, and left as it is.
     fs.writeFileSync(path.join(archive, 'Taxes/2026/a loose note.txt'), 'put here in Finder');
     await act('shelf-again'); await says('a loose note.txt (not recorded)');
@@ -290,6 +305,14 @@ const PAGE_SIDE = () => {
     await act('check-fully'); await page.fill('[name="check-secret"]', PASSPHRASE); await act('check-go');
     await says('is whole and opens.');
     assert.deepEqual(tree(archive), new Map([...before.archive]), 'a backup changes nothing in the archive');
+    // A drive that is not plugged in is said to be gone, not taken for a place with no backups.
+    fs.renameSync(drive, drive + ' unplugged');
+    await go('form'); await go('backup');
+    await says('is not there now');
+    assert.equal((await desk()).includes('There is no backup there yet'), false);
+    fs.renameSync(drive + ' unplugged', drive);
+    await act('backups-again');
+    await says(made);
     await shot('mac-6-backup');
   });
 

@@ -31,6 +31,7 @@ test('what the app says went wrong becomes an error with the system\'s code', ()
     ['failed to remove path: /x with error: Directory not empty (os error 66)', 'ENOTEMPTY'],
     ['failed to open file at path: /x with error: No space left on device (os error 28)', 'ENOSPC'],
     ['failed to open file at path: /x with error: something new (os error 999)', 'EIO'],
+    ['failed to open file at path: /x/a folder (os error 2)/f.txt with error: File exists (os error 17)', 'EEXIST'],   // the last number is the system's
     ['EEXIST', 'EEXIST'], ['ENOLINK', 'ENOLINK'],
     ['forbidden path: /Users/someone/Documents', 'EFORBIDDEN'], ['forbidden name: Documents', 'EFORBIDDEN'],
   ]) {
@@ -97,6 +98,18 @@ test('the app and the command line keep one lock between them, and each takes ov
   writeFileSync(lock, '');
   assert.deepEqual([(await app.lockHolder()).pid, (await app.lockHolder()).stale], [null, false], 'one being written this moment is waited for');
   for (const pid of ['not a number', -1, 0, 1.5]) { writeFileSync(lock, JSON.stringify({ pid, host: hostname(), since: '2026-11-17T15:00:00.000Z' })); assert.equal((await app.lockHolder()).stale, true, 'pid ' + pid); }
+  // The app's process outlives a page that is loaded again: a lock the same process wrote from an earlier loading
+  // of the page is left by nobody, and is taken over; the one this page holds is not.
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), since: '2026-11-17T15:00:00.000Z', page: 'an earlier loading of the page' }));
+  assert.equal((await app.lockHolder()).stale, true);
+  await app.unlock();
+  assert.equal(existsSync(lock), true, 'it is not this page\'s to give up');
+  await app.lock();
+  const mine = JSON.parse(readFileSync(lock, 'utf8'));
+  assert.deepEqual([mine.pid, typeof mine.page, (await app.lockHolder()).stale], [process.pid, 'string', false]);
+  await assert.rejects(tauriFiles(tauriStandIn({ granted: [dir] }), dir).lock({ wait: 100 }), { code: 'ELOCKED' }, 'another interface of the same page waits for it');
+  await app.unlock();
+  assert.equal(existsSync(lock), false);
 });
 
 test('nothing is written through a link, and a link that leads out of every granted folder is refused by the app itself', async () => {

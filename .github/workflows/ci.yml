@@ -1,6 +1,7 @@
 # Every push and pull request: the never-list gate, the unit and command-line tests (with a backup opened by the stock
 # age tool), a build, and the whole page walked at phone size, in Chromium here and in WebKit (the engine of Safari,
-# an iPhone and the Mac app) on a Mac.
+# an iPhone and the Mac app) on a Mac. The Mac app's own screens are walked in both too, over a stand-in for the app,
+# and the app's Rust is built and its tests run on a Mac. The app itself is not started here.
 # The handwriting step is left out (it downloads a 64 MB model); run it on a computer with
 #   node scripts/walk.cjs dist --handwriting
 name: Tests
@@ -32,6 +33,8 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: node scripts/walk.cjs dist
+      # The Mac app's own screens, clicked through over a stand-in for the app (tests/tauri-stand-in.js).
+      - run: node scripts/walk-mac.cjs dist
   webkit:
     runs-on: macos-latest
     steps:
@@ -45,3 +48,17 @@ jobs:
       - run: npm run build
       - run: npx playwright install webkit
       - run: node scripts/walk.cjs dist --engine webkit
+      - run: node scripts/walk-mac.cjs dist --engine webkit
+  mac-app:
+    # The Mac app's Rust (src-tauri): built with the page it carries, and its tests run, with the versions Cargo.lock
+    # pins. The app is not started.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: rustc --version
+      - run: npm run mac:test

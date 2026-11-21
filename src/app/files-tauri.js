@@ -33,7 +33,8 @@ const ERRNO = { 1: 'EPERM', 2: 'ENOENT', 5: 'EIO', 13: 'EACCES', 17: 'EEXIST', 1
 export function fault(error) {
   if (error instanceof Error && error.code) return error;
   const said = typeof error === 'string' ? error : error?.message || String(error);
-  const bare = /^E[A-Z]+$/.exec(said), system = /\(os error (\d+)\)/.exec(said);
+  // The system's number is the last thing the text says: a path earlier in it may itself hold "(os error 2)".
+  const bare = /^E[A-Z]+$/.exec(said), system = [...said.matchAll(/\(os error (\d+)\)/g)].at(-1);
   const code = bare ? bare[0] : system ? ERRNO[system[1]] || 'EIO' : /^forbidden (path|name)\b/.test(said) ? 'EFORBIDDEN' : null;
   return Object.assign(error instanceof Error ? error : new Error(said), code ? { code } : {});
 }
@@ -45,6 +46,10 @@ const STAGING = /^\.ff-staging-[0-9a-f]{16}$/;
 const CHUNK = 8 * 1024 * 1024, PIECE = 1024 * 1024, WHOLE = 32 * 1024 * 1024;
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const tempName = () => '.ff-new-' + hex(globalThis.crypto.getRandomValues(new Uint8Array(8))) + '.tmp';
+// One for each loading of the page. The lock names the app's process, but it is the page that holds it, and the
+// process outlives a page that is loaded again: a lock this process wrote under another token was left by a page
+// that is gone.
+const PAGE = hex(globalThis.crypto.getRandomValues(new Uint8Array(8)));
 const dirOf = full => full.slice(0, full.lastIndexOf('/'));
 const nameOf = path => path.slice(path.lastIndexOf('/') + 1);
 const kindOf = info => info.isSymlink ? 'other' : info.isFile ? 'file' : info.isDirectory ? 'folder' : 'other';
@@ -85,10 +90,12 @@ export function tauriFiles({ fs, invoke }, root, { links = true, chunk = CHUNK, 
     }
   };
   // Bytes into a new hidden file in `folder`, written through to the disk before anyone can see them by name.
+  // If it cannot be written whole, what was written of it goes (unless the hidden name itself was taken: then the
+  // file there is not this one's).
   const staged = async (folder, bytes) => {
     const temp = folder + '/' + tempName();
-    await call(() => fs.writeFile(temp, bytes, { createNew: true }));
-    try { await call(() => invoke('settle', { path: temp })); } catch (error) { await drop(temp); throw error; }
+    try { await call(() => fs.writeFile(temp, bytes, { createNew: true })); await call(() => invoke('settle', { path: temp })); }
+    catch (error) { if (error.code !== 'EEXIST') await drop(temp); throw error; }
     return temp;
   };
   // An empty file at a name not yet taken, made in one step, that a rename then replaces: how a name is held on a disk
@@ -203,7 +210,7 @@ export function tauriFiles({ fs, invoke }, root, { links = true, chunk = CHUNK, 
         await call(() => invoke('settle', { path: temp }));
       } catch (error) {
         try { await pieces.return?.(); } catch { /* the source is past caring */ }
-        if (temp && made) await drop(temp);
+        if (temp && (made || error.code !== 'EEXIST')) await drop(temp);
         throw error;
       }
       await named(temp, full, path);
@@ -253,7 +260,7 @@ export function tauriFiles({ fs, invoke }, root, { links = true, chunk = CHUNK, 
     // file, so the app and the command line wait for each other.
     async lock({ wait = 10000 } = {}) {
       const folder = await books(), path = folder + '/lock', { pid, host } = await who();
-      const mine = encoder.encode(JSON.stringify({ pid, host, since: new Date().toISOString() }));
+      const mine = encoder.encode(JSON.stringify({ pid, host, since: new Date().toISOString(), page: PAGE }));
       for (const started = Date.now(); ;) {
         try { await call(() => fs.writeFile(path, mine, { createNew: true })); return; }
         catch (error) { if (error.code !== 'EEXIST') throw error; }
@@ -265,16 +272,21 @@ export function tauriFiles({ fs, invoke }, root, { links = true, chunk = CHUNK, 
     },
     async unlock() {
       const path = at('.formfiller') + '/lock';
-      try { if (JSON.parse(decoder.decode(await call(() => fs.readFile(path)))).pid !== (await who()).pid) return; } catch { return; }
+      try { const holder = JSON.parse(decoder.decode(await call(() => fs.readFile(path)))); if (holder.pid !== (await who()).pid || (typeof holder.page === 'string' && holder.page !== PAGE)) return; } catch { return; }
       await call(() => fs.remove(path)).catch(error => { if (error.code !== 'ENOENT') throw error; });
     },
     // Who holds the lock: { pid, host, since, stale }, or null when nobody does. Stale: its process is gone (on this
-    // computer), or it was never written (left empty by a stop) half a minute ago or more.
+    // computer), or it is this app's own from a page that has since been loaded again, or it was never written (left
+    // empty by a stop) half a minute ago or more.
     async lockHolder() {
       const path = at('.formfiller') + '/lock';
       let said, info;
       try { [said, info] = await Promise.all([call(() => fs.readFile(path)).then(bytes => decoder.decode(bytes)), call(() => fs.stat(path))]); } catch { return null; }
-      try { const holder = JSON.parse(said); return { ...holder, stale: holder.host === (await who()).host && !(await alive(holder.pid)) }; }
+      try {
+        const holder = JSON.parse(said), me = await who();
+        const earlierPage = holder.pid === me.pid && typeof holder.page === 'string' && holder.page !== PAGE;
+        return { ...holder, stale: holder.host === me.host && (earlierPage || !(await alive(holder.pid))) };
+      }
       catch { const since = info.mtime ? new Date(info.mtime).getTime() : Date.now(); return { pid: null, since: new Date(since).toISOString(), stale: Date.now() - since > 30000 }; }
     },
   };

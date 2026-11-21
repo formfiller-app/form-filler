@@ -15,15 +15,17 @@ export const tauri = shell ? { fs: api.fs, invoke: (command, args) => api.core.i
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const HASH = /^[0-9a-f]{64}$/;
 let whereabouts = null;
-// { data, home, archive }: the app's data folder, your home folder, and the archive's usual place in it.
-export const places = () => whereabouts ??= import('./files-tauri.js').then(({ call }) => call(() => tauri.invoke('places')));
+// { data, home, archive }: the app's data folder, your home folder, and the archive's usual place in it. Asked of the
+// app once; an answer that fails is not kept, so the next thing that needs it asks again.
+export const places = () => whereabouts ??= import('./files-tauri.js').then(({ call }) => call(() => tauri.invoke('places'))).catch(error => { whereabouts = null; throw error; });
 const storeAt = async folder => { const [where, { tauriStore }] = await Promise.all([places(), import('./store-tauri.js')]); return tauriStore(tauri, where.data + folder); };
 
 // The vault's store in the app's data folder. It is made when it is first used: only the app can say where that
 // folder is, and every call of a store waits anyway.
 export function vaultStore() {
   let ready = null;
-  const through = name => async (...args) => (await (ready ??= storeAt('/vault')))[name](...args);
+  const made = () => ready ??= storeAt('/vault').catch(error => { ready = null; throw error; });
+  const through = name => async (...args) => (await made())[name](...args);
   return { get: through('get'), put: through('put'), list: through('list'), clear: through('clear') };
 }
 
