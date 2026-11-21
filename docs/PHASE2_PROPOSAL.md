@@ -5,7 +5,9 @@ It was written as a proposal. **Status, evening of 2026-11-17:** approved, with 
 [Decisions](#decisions-ruled-2026-11-17). **Status, 2026-11-21:** the never-list gate and slice 0 are built and
 tested. Slice 1, the throwaway shell spike, ran on 2026-11-20 ([SHELL_SPIKE.md](SHELL_SPIKE.md)). Of slices 2 to 4,
 the archive (2.5.0) and backup and restore (2.7.0) are built as library modules with their commands, and the vault
-(2.6.0) as a library module the web page uses. The Tauri shell itself, slice 5, is not started.
+(2.6.0) as a library module the web page uses. Of the Tauri shell itself, slice 5, the groundwork is built and
+measured on branch `phase-2-shell` ([As built, part 1](#slice-5-as-built-part-1-the-groundwork-2026-11-21)); its
+screens are not started.
 
 Marks: **[V]** verified: run here, read here in the code named, or read on the page linked. (The Tauri and age pages
 were read by a fetch helper whose report is relayed here. The shell spike of 2026-11-20 then ran Tauri, built with
@@ -196,6 +198,106 @@ Things the fetched pages did **not** state, and what the shell spike found (2026
 - Found in the code, not run (**[V]** from source): a folder grant does not reach names that start with a dot on
   macOS unless the fs plugin is set to `requireLiteralLeadingDot: false`, which the archive's `.formfiller/` needs;
   and a strict content policy must allow `ipc:` in `connect-src`, or Tauri sends every call as JSON, bytes included.
+
+### Slice 5, as built, part 1: the groundwork (2026-11-21)
+
+No screen yet: the app shows today's page and nothing else. What is built is what the screens will stand on, and
+each thing the spike left unchecked that a script can check. **[V]** here means run on this Mac, in a test build of
+the app (`npm run mac:check`), unless a row says it was read in the code.
+
+What is there:
+
+- `src-tauri/`: the app. Tauri 2.12.7 with the `fs`, `dialog` and `persisted-scope` plugins at the spike's versions,
+  every version pinned and `Cargo.lock` kept; built with `@tauri-apps/cli` 2.12.6, kept in `node_modules`. Nothing new
+  was downloaded by cargo: the spike's downloads were enough. **[V]**
+- `src/app/files-tauri.js` and `src/app/store-tauri.js`: the file interface and the vault's store over Tauri's file
+  plugin, with every call `src/lib/files/node.js` and `src/lib/stores/node.js` have. The archive's and the vault's own
+  tests run on them too, over a stand-in for the app (`tests/tauri-stand-in.js`), and `tests/shell/selftest.js` runs
+  the same promises in the app itself, against the real plugin.
+- The page's API comes from the app (`withGlobalTauri`), so no Tauri package is bundled into the page, and the web
+  page's build carries none of this.
+
+What changed from the proposal, and why:
+
+- **More Rust than "a few dozen lines": about 260, plus 60 only a test build has.** Read in the plugin's code
+  (`tauri-plugin-fs` 2.7.1), and then run: it never writes a file through to the disk, and it has no way to give a
+  file a name only if the name is free (its rename replaces what is there). A vault whose key file was renamed into
+  place unsynced could be empty after a power cut, and the archive's first rule is that nothing is overwritten. So the
+  app adds `settle` (sync a file) and `name_file` (a second name, refused by the system if the name is taken, then the
+  first name goes); `real_path`, so the page can refuse a folder that is a link to another granted folder; `whoami`
+  and `alive`, so the app and the command line keep one lock between them; and `places`, `reveal` and `print_page`.
+  The rest is the next point.
+- **A restore puts the archive back in its own place (ruled by the owner, 2026-11-21).** A restore stages beside the
+  archive, and the archive's usual place is the home folder, which the app is not to have. So the app grants, by
+  name, only Form Filler's own names there (`grant_home`: "Form Filler Archive", a restored copy of it, a restore's
+  staging folder), tells the page only those names of what the home folder holds (`home_names`), and
+  `homeFiles` in `files-tauri.js` reaches nothing else. A name there that is a link is not granted, and counts as
+  taken. In the test build, with a folder standing in for the home folder: a file beside those names cannot be
+  listed, read or written, by the page's code or by the plugin asked directly. **[V]** The real home folder is first
+  used when the owner runs the app.
+- **Forgetting the vault removes its empty folder too (ruled by the owner, 2026-11-21)**, in the app's store, so a
+  restore afterwards puts the vault back in place and not beside. The command line has no "forget".
+- **No folder is named in the capability file.** The app's data folder is granted when the app starts, and a picked
+  folder by the dialog, so the plugin's commands and the app's own check a path against one list. `scopeDroppedPaths`
+  is off: by default, anything dropped on the window is granted. `requireLiteralLeadingDot` is off, for `.formfiller`.
+- **The window goes nowhere but its own page** (`on_navigation`), and a form dropped on it reaches the page.
+
+What the spike left unchecked, checked now **[V]**:
+
+| The question | The answer |
+| --- | --- |
+| A strict content policy | On: `default-src 'none'`, scripts and workers from the app only (with `'wasm-unsafe-eval'` for the text reader), no inline script, styles from the app's own file, and `style-src-attr 'unsafe-inline'` for the places the page puts its blanks. Under it the invented `form.pdf` gives its 13 blanks with every label right in about 0.7 s, the PDF with its own fields and the crooked photo read as on the web page, and nothing was blocked or warned of. A `fetch` and a picture from a web address are refused, and so is sending the window to one. |
+| Whether pdf.js runs its worker as a worker | No warning was logged while the PDFs opened, and pdf.js warns when it falls back to running on the page. **[I]** from that |
+| Files in a granted folder's subfolders, hidden names too | An archive is made, added to, moved, indexed and verified through the app's files, and then verifies from the command line. |
+| The vault at age's own work factor | Made in about 0.5 s, unlocked in about 0.46 s. |
+| A bundled `.app` | `Form Filler Test.app`, 20 MB, signed ad hoc (`adhoc,runtime`), its signature verifies. Started as Finder starts it (through `open`, which hands it to Launch Services), every check passes. A double-click in Finder itself was not done. |
+| `tar`, hashing, and a backup of 2 GB | Below. |
+
+A backup, a full check and a restore of a made-up archive of 2 GB in 8,720 files (16 of 64 MB, 512 of 1 MB, 8,192 of
+64 KB), on this Mac's own disk, in an optimised build, **with the window in view** **[V]**:
+
+| | Took | Speed |
+| --- | --- | --- |
+| The archive written through the app's files, each file synced | 54.5 s | 38 MB/s, about 6 ms a file |
+| Backup (tar, SHA-256 of every file and of the snapshot, age, read back and fingerprinted) | 54.8 s | 37 MB/s |
+| Full check with the passphrase | 32.4 s | 63 MB/s |
+| Restore (opened, every file checked and written, synced, moved into place) | 85.3 s | 24 MB/s |
+| The archive's own check of every file afterwards | 14.3 s | 144 MB/s |
+
+Memory at its highest, looked at every half second: 359 MB in the app, 587 MB in its page. Stage by stage, on 512 MB
+of 64 MB files: reading through the plugin 1,900 MB/s (1 MiB at a time); SHA-256 in JavaScript about 200 MB/s (the
+system's own, which cannot take a stream, about 2,400); age opening about 200 MB/s; reading the tar costs nothing
+measurable. So SHA-256 in JavaScript and age set the pace, as the proposal expected of age.
+
+**A window that cannot be seen runs several times slower.** macOS slows the page of a window that is hidden,
+minimized or covered. The same full check of 512 MB took 8 to 9 s in view and 45 to 55 s hidden or minimized. The
+app asks macOS not to (`background_throttling`, WebKit's inactive scheduling policy, macOS 14 or later); with that,
+hidden checks took 15 and 39 s. With App Nap off and WebKit's own process suppression off for one run, 9 s after 5 s
+hidden and 31 s after 45 s more. Each of those is one run, not a study, and one run stayed slow after the window was
+shown again. **[V]** as far as that goes: nothing tried keeps a hidden window at full speed. Tauri's notes say a
+hidden view may be suspended altogether after about five minutes without that setting **[I]**; that was not run.
+It always finishes; it is slower while nobody looks. The fallback of the next section (the loop in Rust) would not be
+slowed this way **[I]**, and is the owner's call.
+
+Also found:
+
+- WebKit in the app cannot read a stream with `for await`; the app's file code reads streams through a reader. **[V]**
+- A PDF opened while the window cannot be seen waits at "Opening the form…": hidden for 30 s it was not read, and it
+  was read 0.8 s after the window was shown. A photo is read while hidden. **[V]** pdf.js draws in the turns a page is
+  given to draw in, and a hidden page is given none **[I]**; the web page in a tab nobody is looking at is likely the
+  same **[I]**. The checks in the app keep its window small, in a corner and above the others for that reason.
+- Started as Finder starts it, the app answers to macOS for the folders it reads: a folder in Downloads, Documents or
+  on the Desktop, or on another drive, has macOS ask the owner once whether the app may (and again after each rebuild,
+  since an ad-hoc signature changes with the build **[I]**). The data folder and `~/Form Filler Archive` are in none of
+  those places. **[V]** that a read in Downloads waited on such a question; the rest **[I]**.
+- A test found a hole before it shipped: granting one of Form Filler's own names in the home folder while a link
+  stood at that name would have granted the folder the link led to. Closed, and tested, in Rust and in the stand-in.
+
+Not checked, because each needs a click in a real dialog and the owner declined to have the test app clicked for
+them: a folder picked in the folder dialog and still granted after a restart (`--run pick`, then `--run picked`),
+a file named in the save dialog, the page's own "Choose the form" button and its file panel (`--run picker`), and
+printing (`--run print`). Also not checked: a backup drive, an archive much larger than 2 GB, the handwriting reader
+(left off in the app: it fetches its model from the web, which the content policy refuses), and `tauri dev`.
 
 ## Where the logic lives
 
@@ -624,7 +726,7 @@ Each slice ends in something you can check. Sizes are relative, not dates.
 | 2 | Archive module and its tests | Medium | `npm test`; `form-filler archive verify` on a folder you made by hand. **Built** (2026-11-20, 2.5.0): `src/lib/archive.js`, the file interface over Node, and `form-filler archive add`, `file`, `move`, `index`, `verify`; the hand check is yours |
 | 3 | Vault module and its tests, with its browser adapter (privacy wall, part 6) | Medium | `npm test`; the web page keeps no detail or signature in plain text. **Built** (2026-11-20, 2.6.0): `src/lib/vault.js` with stores in memory, in a folder and in IndexedDB; the page keeps your details and signature in it, and the walk checks in both engines that nothing of them is in plain text. Pages at the same address can still script the page while it is open (see "The privacy wall in phase 2"); on 2026-11-21, before 2.6.0 was published, the page moved to an address of its own. The locker has no screen yet (slice 5), and the stock-`age` check came with slice 4, where CI runs it (age 1.1.1 on Linux) |
 | 4 | Backup and restore, with the wipe-and-restore test | Medium | `npm test`, including the stock-`age` check. **Built** (2026-11-21, 2.7.0): `src/lib/backup.js` and `src/lib/tar.js`, `unlockKey` in the vault, `form-filler backup make`, `list`, `verify` and `restore`, and the wipe-and-restore test with each way it must fail safely. The system's tar and the stock checksum tools are checked on the Mac; in CI, on Linux, GNU tar and the stock `age` 1.1.1 open a backup by README.txt's own lines, with the recovery key and with the passphrase (first run 2026-11-21). The hand check is yours |
-| 5 | The shell: setup, unlock, locker, archive list, export into the archive, backup and restore screens, with never-list fields masked (privacy wall, part 5) | Large | You can do all of it by clicking |
+| 5 | The shell: setup, unlock, locker, archive list, export into the archive, backup and restore screens, with never-list fields masked (privacy wall, part 5) | Large | You can do all of it by clicking. **Part 1 built** (2026-11-21, branch `phase-2-shell`): the app itself, its file interface and vault store, and the checks that run inside it; no screen yet. See "Slice 5, as built, part 1" |
 | 6 | Your drill on a real document | Yours | Wipe, restore, everything comes back |
 
 Work happens on `phase-2-…` branches. `main` stays releasable throughout.
@@ -652,7 +754,9 @@ Work happens on `phase-2-…` branches. `main` stays releasable throughout.
 3. **The archive is plain text on disk.** A folder that a cloud service syncs would upload it; hence the default
    location and the warning. Decisions 1 and 2.
 4. **Big backups through the webview.** Measured in the spike: at 2 GB, about 10 s each way, written as byte arrays
-   with `writeFile` appends. A Rust fallback that changes no file format stays in reserve.
+   with `writeFile` appends. A Rust fallback that changes no file format stays in reserve. Measured in the app
+   (slice 5, part 1), with `tar` and hashing and 8,720 files: a backup of 2 GB in 55 s, a full check in 32 s, a restore
+   in 85 s, with the window in view; several times slower while the window cannot be seen.
 5. **The key lives in the webview while unlocked.** Mitigated by a strict content policy and no remote content;
    movable to Rust later.
 6. **`age-encryption` is version 0.3.** Its interface may still change; pin the exact version. The file format it

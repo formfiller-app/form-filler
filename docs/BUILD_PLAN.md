@@ -116,7 +116,8 @@ the e-file route.
 
 Status: phase 1 is done (branch `phase-1-inventory`). Phase 2 has started on branch `phase-2` with the never-list
 gate and "slice 0" (the reader's defects in WebKit, older browsers and long PDFs). The Tauri shell's throwaway spike
-has run ([SHELL_SPIKE.md](SHELL_SPIKE.md)); the shell itself has not started. The archive is built as a library and a
+has run ([SHELL_SPIKE.md](SHELL_SPIKE.md)); of the shell itself the groundwork is built on branch `phase-2-shell`
+(the app, its file interface and its checks), and its screens have not started. The archive is built as a library and a
 command (2.5.0, slice 2), the vault, which keeps the web page's details and signature locked (2.6.0, slice 3), and
 backup and restore, tested by wiping and restoring (2.7.0, slice 4).
 

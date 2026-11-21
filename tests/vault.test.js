@@ -7,6 +7,8 @@ import { Decrypter, Encrypter } from 'age-encryption';
 import { createVault, unlockVault, unlockKey, forgetVault, vaultInfo, checkPassphrase, cleanDetails, MIN_PASSPHRASE } from '../src/lib/vault.js';
 import { memoryStore } from '../src/lib/stores/memory.js';
 import { nodeStore } from '../src/lib/stores/node.js';
+import { tauriStore } from '../src/app/store-tauri.js';
+import { tauriStandIn } from './tauri-stand-in.js';
 import { MIN_PASSPHRASE as PAGE_MIN } from '../src/app/keep.js';
 
 // The vault, with invented details and documents only. scrypt runs at a low work factor here so the tests are quick;
@@ -20,6 +22,8 @@ const AGE = 'age-encryption.org/v1';
 const STORES = {
   'in memory': () => memoryStore(),
   'in a folder': () => nodeStore(join(mkdtempSync(join(scratch, 'store-')), 'vault')),
+  // The Mac app's own store (src/app/store-tauri.js), over a stand-in for the app (tests/tauri-stand-in.js).
+  'in the Mac app\'s folder': () => { const folder = mkdtempSync(join(scratch, 'store-')); return tauriStore(tauriStandIn({ granted: [folder] }), join(folder, 'vault')); },
 };
 const DETAILS = { fullName: 'Jane Roe', email: 'jane@example.org', phone: '555-0100' };
 const SIGNATURE = 'data:image/png;base64,iVBORw0KGgo=';

@@ -8,3 +8,8 @@ public/licenses/
 
 # The never-list: your own values stay on this computer (see never-list/README.md)
 never-list/local.txt
+
+# The Mac app: what cargo and Tauri build, and the icons made from public/icons at build time (npm run mac:icons)
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/

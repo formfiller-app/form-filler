@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { openArchive, readRecord, cleanName, matterPath, itemsWithFile, sha256, UNSORTED } from '../src/lib/index.js';
 import { nodeFiles } from '../src/lib/files/node.js';
 import { memoryFiles } from './memory-files.js';
+import { tauriFiles } from '../src/app/files-tauri.js';
+import { tauriStandIn } from './tauri-stand-in.js';
 
 // The archive, on invented documents only: made-up bytes, invented counterparties and titles. Every folder the tests
 // make is under one temporary folder, removed when they are done.
@@ -29,14 +31,19 @@ const walk = (dir, { folders = false } = {}, at = '') => {
   }
   return out;
 };
-// Each test that depends on the disk runs on all three: the real one (Linux in CI, a Mac's here), the real one acting
-// as a disk that cannot give a file a second name (some USB drives), and a Mac-like one in memory, where names that
-// differ only in case or in how an accent is encoded are one name.
+// Each test that depends on the disk runs on all five: the real one (Linux in CI, a Mac's here), the real one acting
+// as a disk that cannot give a file a second name (some USB drives), a Mac-like one in memory, where names that
+// differ only in case or in how an accent is encoded are one name, and the real one again through the Mac app's own
+// file interface (src/app/files-tauri.js, over a stand-in for the app: tests/tauri-stand-in.js), with second names
+// and without.
 const real = links => () => { const dir = tempFolder(); return { dir, files: nodeFiles(dir, { links }), dump: options => walk(dir, options) }; };
+const app = links => () => { const dir = tempFolder(); return { dir, files: tauriFiles(tauriStandIn({ granted: [dir], links }), dir, { links }), dump: options => walk(dir, options) }; };
 const DISKS = {
   'the real disk': real(true),
   'the real disk, without second names': real(false),
   'a Mac-like disk in memory': () => { const { files, dump } = memoryFiles(); return { dir: null, files, dump }; },
+  'the Mac app\'s files': app(true),
+  'the Mac app\'s files, without second names': app(false),
 };
 const open = disk => { const made = DISKS[disk](); return { ...made, book: openArchive(made.files, { now: clock }) }; };
 const IRS = { matter: 'Taxes/2026', title: 'Form 1040', direction: 'out', counterparty: 'IRS', channel: 'export' };

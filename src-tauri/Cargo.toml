@@ -1,0 +1,39 @@
+# Form Filler's Mac app (docs/PHASE2_PROPOSAL.md, slice 5): the page this repository builds (../dist), in a window of
+# its own, with real folders. The Rust here is kept small on purpose: what decides anything is in JavaScript (src/lib
+# and src/app), where the tests are. Every version is pinned, and Cargo.lock is kept, so a build is the same build.
+#
+#   npm run mac:build     builds the page and then the app, into target/release/bundle/macos/
+#   npm run mac:test      the Rust tests (cargo test)
+[package]
+name = "form-filler"
+version = "2.7.0"
+description = "Form Filler's Mac app: the page in a window of its own, with real folders"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
+publish = false
+
+[lib]
+name = "form_filler_shell"
+path = "src/lib.rs"
+
+[[bin]]
+name = "form-filler"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.6", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.7", features = [] }
+tauri-plugin-dialog = "=2.8.4"
+tauri-plugin-fs = "=2.7.1"
+tauri-plugin-persisted-scope = "=2.4.3"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# A test build only (npm run mac:check): the checks in tests/shell run inside the real window and report to the
+# terminal, in folders the terminal names. The app itself is never built with it.
+testing = []

@@ -66,6 +66,9 @@ These matter for phase 2. **[V]** in the code named; none was run.
 
 ## Not checked
 
+Slice 5's groundwork has since checked several of these in the app itself: see "Slice 5, as built, part 1" in
+[PHASE2_PROPOSAL.md](PHASE2_PROPOSAL.md).
+
 - Whether pdf.js runs its worker as a worker in the shell, or in its fallback on the page.
 - The handwriting reader in the shell: its worker, its ONNX WebAssembly, and the 64 MB model it downloads.
 - A real folder pick, by a click in the dialog; and files in a granted folder's subfolders.

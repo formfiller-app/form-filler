@@ -38,7 +38,8 @@ function serviceWorker() {
 
 export default defineConfig({
   base: './',
-  server: { host: '127.0.0.1' },
+  // The Mac app's own folder (src-tauri) is cargo's to watch, not the page's: a build there writes thousands of files.
+  server: { host: '127.0.0.1', watch: { ignored: ['**/src-tauri/**'] } },
   resolve: { conditions },
   worker: { format: 'es' },
   define: { __APP_VERSION__: JSON.stringify(VERSION), __APP_COMMIT__: JSON.stringify(COMMIT) },

@@ -1,0 +1,140 @@
+// Runs the checks in tests/shell/selftest.js inside the Mac app's own window: a test build of the app is started with
+// folders made here for it, the checks run in its real WebKit against the real file plugin, and what they report is
+// printed. Then what the app left on the disk is looked at from outside, with Node. Everything is invented, and it
+// all happens in one temporary folder, removed at the end; the app's data folder and your home folder are stood in
+// for by folders in it, so nothing of yours is read or written.
+//
+//   npm run mac:check                              builds the test app first, then runs this
+//   node scripts/mac-check.mjs [--run files,store,home,page] [--big MB] [--root FOLDER] [--app APP] [--keep]
+//
+// --big MB also backs up, checks and restores a made-up archive of that many megabytes, timed, and watches the app's
+// memory while it does (it needs about four times that much room). --root puts the temporary folder somewhere else
+// than the system's own. --keep leaves it there to be looked at, and --work FOLDER runs again in one that was kept
+// (for what must outlast a restart). --run also takes pick, picked, picker and print, which wait for someone to
+// click: see tests/shell/selftest.js. --open starts the app as Finder does when it is double-clicked (through macOS's
+// own `open`, which hands the bundle to Launch Services), not as a program run from the terminal.
+import { spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build } from 'vite';
+import { openArchive } from '../src/lib/index.js';
+import { nodeFiles } from '../src/lib/files/node.js';
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const option = name => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null;
+const big = Number(option('--big')) || 0, keep = process.argv.includes('--keep');
+const run = (option('--run') || 'files,store,home,page').split(',').filter(Boolean).concat(big ? ['big=' + big] : []);
+const wants = name => run.some(item => item === name || item.startsWith(name + '='));
+const app = resolve(option('--app') || join(repo, 'src-tauri/target/release/bundle/macos/Form Filler Test.app'));
+const program = app.endsWith('.app') ? join(app, 'Contents/MacOS/form-filler') : app;
+if (!existsSync(program)) { console.error('There is no test build of the app at ' + app + '.\nBuild one with: npm run mac:check'); process.exit(2); }
+
+// The checks, bundled into one script the app can run in its page.
+const out = join(repo, 'src-tauri/target/selftest');
+await build({ root: repo, configFile: false, logLevel: 'error', build: { lib: { entry: join(repo, 'tests/shell/selftest.js'), formats: ['iife'], name: 'FormFillerChecks', fileName: () => 'selftest.js' }, outDir: out, emptyOutDir: true, minify: false, target: 'es2022', reportCompressedSize: false } });
+
+// The folders the app may use, and things in them it must leave alone.
+const again = option('--work'), work = again ? resolve(again) : mkdtempSync(join(resolve(option('--root') || tmpdir()), 'form-filler-mac-check-'));
+const root = join(work, 'root'), data = join(work, 'data'), home = join(work, 'home'), files = join(root, 'files');
+if (!again) setUp();
+function setUp() {
+for (const folder of [join(root, 'picked'), join(root, 'saved'), files, join(root, 'other'), join(root, 'outside'), join(root, 'locked/.formfiller'), join(root, 'big/archive'), join(root, 'big/drive'), join(root, 'big/restored'), data, join(home, 'Documents'), join(home, '.ff-staging-00000000000000aa'), join(files, '.formfiller'), join(files, '.ff-staging-00000000000000bb')]) mkdirSync(folder, { recursive: true });
+const gone = Number(spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
+writeFileSync(join(files, 'plain.txt'), 'plain');
+writeFileSync(join(root, 'outside/secret.txt'), 'secret');
+symlinkSync('plain.txt', join(files, 'a link.txt'));
+symlinkSync(join(root, 'other'), join(files, 'way to granted'));
+symlinkSync(join(root, 'outside'), join(files, 'way out'));
+symlinkSync('nowhere at all', join(files, 'way nowhere'));
+symlinkSync(join(files, 'a'), join(files, 'staging link'));
+writeFileSync(join(files, '.formfiller/lock'), JSON.stringify({ pid: gone, host: hostname(), since: '2026-11-17T15:00:00.000Z' }));
+writeFileSync(join(files, '.ff-staging-00000000000000bb/f.txt'), 'staged');
+symlinkSync(join(root, 'outside'), join(files, '.ff-staging-00000000000000bb/a link out'));
+symlinkSync(join(root, 'other'), join(files, '.ff-staging-00000000000000bb/a link to the other'));
+writeFileSync(join(root, 'locked/.formfiller/lock'), JSON.stringify({ pid: process.pid, host: hostname(), since: new Date().toISOString() }));
+writeFileSync(join(home, 'Documents/private.txt'), 'mine');
+writeFileSync(join(home, '.zshrc'), 'mine');
+symlinkSync(join(home, 'Documents'), join(home, 'Form Filler Archive (restored 2026-11-17 1530) (2)'));
+}
+
+// The app's memory, and its page's (WebKit runs the page in a process of its own, which appears with the app).
+const processes = () => spawnSync('ps', ['-axo', 'pid=,rss=,comm='], { encoding: 'utf8' }).stdout.split('\n').map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean).map(([, pid, rss, name]) => ({ pid: Number(pid), mb: Number(rss) / 1024, name }));
+const before = new Set(processes().filter(entry => /WebKit/.test(entry.name)).map(entry => entry.pid));
+const peak = { app: 0, page: 0 };
+
+const started = Date.now(), lines = [];
+// Unless someone has to click in it, the app stays out of the Dock and does not come to the front, so a run does not
+// take the keyboard from whoever is at the Mac. While something is timed its window is small, in a corner and above
+// the others: macOS slows the page of a window that cannot be seen.
+// The page's own checks need it too: a hidden page is given no turns to draw in, and the PDF reader waits for them.
+const clicking = ['pick', 'picker', 'print'].some(wants) || process.argv.includes('--front'), timing = big || wants('bench') || wants('page');
+// --defaults A=YES,B=NO starts the app with those settings for this run only (nothing is written anywhere).
+const settings = (option('--defaults') || '').split(',').filter(Boolean).flatMap(pair => ['-' + pair.split('=')[0], pair.split('=')[1]]);
+const viaOpen = process.argv.includes('--open'), told = join(work, 'told.txt');
+// The checks and the invented forms they open are handed to the app in the temporary folder, not where this
+// repository is: started as Finder starts it, the app answers to macOS for the folders it reads, and a repository
+// kept in Downloads or Documents would have macOS ask whether the app may read there.
+const given = join(work, 'given');
+mkdirSync(given, { recursive: true });
+copyFileSync(join(out, 'selftest.js'), join(given, 'selftest.js'));
+for (const name of ['form.pdf', 'fillable.pdf', 'form-photo.png']) copyFileSync(join(repo, 'tests/fixtures', name), join(given, name));
+const environment = { FF_TEST_ROOT: root, FF_TEST_DATA: data, FF_TEST_HOME: home, FF_TEST_SCRIPT: join(given, 'selftest.js'), FF_TEST_FIXTURES: given, FF_TEST_RUN: run.join(','), ...(process.argv.includes('--throttled') ? { FF_TEST_THROTTLING: 'default' } : {}), ...(clicking ? {} : { FF_TEST_QUIET: '1' }), ...(timing ? { FF_TEST_WINDOW: 'corner' } : {}) };
+if (viaOpen && !app.endsWith('.app')) { console.error('--open needs the app bundle (…/Form Filler Test.app), not the program inside it.'); process.exit(2); }
+const child = viaOpen
+  ? spawn('/usr/bin/open', ['-n', '-W', ...(clicking ? [] : ['-g']), '--stdout', told, '--stderr', told, ...Object.entries(environment).flatMap(([name, value]) => ['--env', name + '=' + value]), app, ...(settings.length ? ['--args', ...settings] : [])], { stdio: ['ignore', 'pipe', 'pipe'] })
+  : spawn(program, settings, { env: { ...process.env, ...environment }, stdio: ['ignore', 'pipe', 'pipe'] });
+const watching = setInterval(() => {
+  for (const entry of processes()) {
+    if (entry.pid === child.pid) peak.app = Math.max(peak.app, entry.mb);
+    else if (/WebKit\.WebContent/.test(entry.name) && !before.has(entry.pid)) peak.page = Math.max(peak.page, entry.mb);
+  }
+}, 500);
+let held = '';
+child.stdout.on('data', piece => { held += piece; const whole = held.split('\n'); held = whole.pop(); for (const line of whole) { lines.push(line); console.log(line); } });
+child.stderr.on('data', piece => process.stderr.write(piece));
+// Started through `open`, the app is not this script's child: it is found by the path of its program.
+const stopApp = () => { if (viaOpen) spawnSync('/usr/bin/pkill', ['-f', program]); };
+const limit = setTimeout(() => { console.log('STOPPED the app: no result after ' + Math.round((Date.now() - started) / 1000) + ' s'); stopApp(); child.kill('SIGKILL'); }, (big ? 3600 : viaOpen ? 120 : 600) * 1000);
+let code = await new Promise(done => child.on('exit', (status, signal) => done(signal ? 'stopped by ' + signal : status)));
+clearTimeout(limit); clearInterval(watching);
+// Started through `open`, the app wrote what it had to say into a file, and `open` cannot say how the app ended.
+if (viaOpen) {
+  for (const line of (existsSync(told) ? readFileSync(told, 'utf8') : '').split('\n').filter(Boolean)) { lines.push(line); console.log(line); }
+  if (code === 0 && !lines.some(line => /RESULT \d+ passed, 0 failed/.test(line))) code = 'no result';
+}
+
+// What the app left, looked at from outside.
+const problems = [];
+const check = (so, what) => { if (!so) problems.push(what); };
+const text = path => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+const everything = (dir, at = '') => readdirSync(join(dir, at), { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? [join(at, entry.name) + '/', ...everything(dir, join(at, entry.name))] : [join(at, entry.name)]);
+check(lines.some(line => /RESULT \d+ passed, 0 failed/.test(line)) && code === 0, 'the checks in the app did not all pass (the app ended with ' + code + ')');
+check(text(join(root, 'outside/secret.txt')) === 'secret' && readdirSync(join(root, 'outside')).length === 1, 'the folder that was never granted was touched');
+check(text(join(home, 'Documents/private.txt')) === 'mine' && text(join(home, '.zshrc')) === 'mine' && readdirSync(join(home, 'Documents')).length === 1, 'something in the stand-in home folder that is not Form Filler\'s was touched');
+if (wants('files')) {
+  check(readdirSync(join(root, 'other')).length === 0, 'something was written through a link into the other granted folder');
+  check(text(join(files, 'a/x.txt')) === 'first' && text(join(files, 'a/y.txt')) === 'second', 'a file that was not to be replaced is not as it was');
+  check(statSync(join(files, 'a/streamed.bin')).size === 20 * (1024 * 1024 + 13), 'the streamed file is not the size that was sent');
+  const left = everything(files).filter(path => /\.ff-new-|\.tmp$|half\.bin|odd\.txt/.test(path));
+  check(left.length === 0, 'half-written files were left: ' + left.join(', '));
+  check(!existsSync(join(files, '.ff-staging-0123456789abcdef')) && !existsSync(join(files, '.ff-staging-00000000000000bb')) && existsSync(join(files, '.ff-staging-fedcba9876543210')), 'the staging folders are not as they should be');
+  check(!existsSync(join(files, '.formfiller/lock')), 'the app left its lock');
+  check(lstatSync(join(files, 'way out')).isSymbolicLink() && lstatSync(join(files, 'a link.txt')).isSymbolicLink(), 'a link was replaced');
+  // The archive the app made, read by the command line's own file interface.
+  const report = await openArchive(nodeFiles(files)).verify();
+  check(report.ok && report.items === 2 && report.files === 3, 'the archive the app made does not verify from the command line: ' + JSON.stringify({ ok: report.ok, items: report.items, files: report.files, missing: report.missing, changed: report.changed, unfinished: report.unfinished, problems: report.problems }));
+}
+if (wants('store')) check(!existsSync(join(data, 'vault')), 'a forgotten vault left its folder');
+if (wants('home')) {
+  check(text(join(home, 'Form Filler Archive/Taxes/filled - form.pdf')) === '%PDF- an invented form', 'the archive is not in its place in the stand-in home folder');
+  check(!existsSync(join(home, '.ff-staging-0123456789abcdef')) && existsSync(join(home, '.ff-staging-00000000000000aa')), 'staging in the stand-in home folder is not as it should be');
+  const names = readdirSync(home).sort();
+  check(JSON.stringify(names) === JSON.stringify(['.ff-staging-00000000000000aa', '.zshrc', 'Documents', 'Form Filler Archive', 'Form Filler Archive (restored 2026-11-17 1530)', 'Form Filler Archive (restored 2026-11-17 1530) (2)', 'Form Filler Archive (restored 2026-11-17 1530) (3)']), 'the stand-in home folder holds: ' + names.join(', '));
+}
+if (big) console.log('         memory at its highest, looked at every half second: the app ' + Math.round(peak.app) + ' MB, its page ' + Math.round(peak.page) + ' MB');
+for (const problem of problems) console.log('FAIL  seen from outside: ' + problem);
+console.log((problems.length ? 'NOT ALL PASSED' : 'ALL PASSED') + ' in ' + Math.round((Date.now() - started) / 1000) + ' s' + (keep || again ? '; left in ' + work : ''));
+if (!keep && !again) rmSync(work, { recursive: true, force: true });
+process.exit(problems.length ? 1 : 0);
