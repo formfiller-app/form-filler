@@ -195,6 +195,27 @@ const PAGE_SIDE = () => {
     await shot('mac-2-details-hidden');
   });
 
+  await step('the app opens on the same three ways in, and the worked example runs inside the app’s own window', async () => {
+    assert.deepEqual(await page.$$eval('#app .choice h3', titles => titles.map(title => title.textContent)), ['Try an example', 'Use my own form', 'Find a form']);
+    await page.click('#example-start');
+    await page.waitForSelector('#example-packet');
+    assert.equal(await page.locator('#example-packet .example-sheet').count(), 3);
+    // The example's person is invented, not you: your own name is hidden in this app, and the invented one is not.
+    assert.match(await page.locator('#example-packet [data-form=info]').innerText(), /Avery Nolan/);
+    assert.equal((await page.content()).includes('Jane Roe'), false, 'and your own name is still nowhere on the page');
+    await page.click('#example-move');
+    assert.deepEqual(await page.$$eval('#example-carrying [data-field=address] dd', found => found.map(item => item.textContent)), ['1620 Mulberry Court', '1620 Mulberry Court']);
+    await page.click('#example-share');
+    await page.waitForSelector('#share-hr');
+    assert.ok(!/Routing number|Account number/.test(await page.locator('#share-hr').innerText()), 'the people office is sent nothing of the bank');
+    assert.match(await page.locator('#share-payroll').innerText(), /Account number\s+•+2337/, 'payroll is, by its last characters');
+    await page.click('#example-leave');
+    await page.waitForSelector('#form-file');
+    // Nothing of the example reaches the app's data folder: it is invented, and it is never kept.
+    for (const file of everyFile(data)) for (const word of ['Avery', 'Mulberry', 'Wabash']) assert.equal(fs.readFileSync(file, 'latin1').includes(word), false, word + ' is not in ' + path.basename(file));
+    await shot('mac-example');
+  });
+
   await step('on the filled form your name shows by its last characters until you ask; the PDF carries it whole, and is saved where the dialog says', async () => {
     await openForm('form.pdf', '13 blanks found');
     assert.equal(await page.locator('#hand-photo').count(), 0, 'no handwriting reader in the app: it would fetch its model from the web');

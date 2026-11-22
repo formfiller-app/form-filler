@@ -12,6 +12,7 @@ import { HANDWRITING_MODELS } from '../lib/models.js';
 import { sha256 } from '../lib/hash.js';
 import { browserStore } from '../lib/stores/browser.js';
 import { makeKeeper, MIN_PASSPHRASE } from './keep.js';
+import { exampleMarkup, examplePressed, exampleRefresh, exampleTyped, freshExample, startMarkup } from './example.js';
 import { shell, tauri, pageStore, vaultStore } from './platform.js';
 
 const app = document.getElementById('app');
@@ -44,6 +45,10 @@ const store = shell ? pageStore({ onProblem: message => { note = 'That could not
 let form = null;          // { name, bytes, hash, pdf, locked, pages: [{ canvas, width, height, pdfPage, angle, scale }] }
 let blanks = [];          // [{ id, page, kind, x0, y0, x1, y1, label, field?, options? }]
 let answers = '', overrides = {}, busy = '', note = '', adding = false, prints = {}, remembered = false, problems = [];
+// Before any form is open the page offers three ways in (example.js): the worked example, your own form, and finding
+// a form in a library that is not built. `example` holds the example while it is being clicked through, and nothing
+// of it is kept: it is invented from end to end, and leaving it throws it away.
+let example = null, finding = false;
 // A saved signature is a PNG picture and nothing else. The browser's storage is shared with every other page at the
 // same site address, so what comes back from it is checked before it is used, and escaped where it is written.
 const asSignature = value => typeof value === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : null;
@@ -177,7 +182,7 @@ const useTemplate = template => {
 };
 
 async function openForm(file) {
-  busy = 'Opening the form…'; note = ''; problems = []; pendingTemplate = null; pendingMark = null; render();
+  busy = 'Opening the form…'; note = ''; problems = []; pendingTemplate = null; pendingMark = null; example = null; finding = false; render();
   try {
     if (shell) await store.ready.catch(() => {});   // the forms remembered in the app's data folder
     const bytes = await file.arrayBuffer(), own = isPdf(file) ? await readFields(bytes) : null;
@@ -240,7 +245,7 @@ async function openFromTemplate(template) {
     return { canvas, width: page.width, height: page.height, pdfPage: null, angle: page.angle };
   }));
   form = { name: template.form.name || 'form from template', bytes: null, hash: template.form.sha256, pdf: false, locked: false, pages };
-  useTemplate(template); remembered = true; prints = {}; merge = null; problems = [];
+  useTemplate(template); remembered = true; prints = {}; merge = null; problems = []; example = null; finding = false;
 }
 
 async function openTemplateFile(file) {
@@ -491,18 +496,22 @@ function render() {
   const { finals, extra, fixed } = form ? current() : { finals: [], extra: [], fixed: new Map() };
   const model = store.get('handModel', 'small');
   app.classList.toggle('open', Boolean(form));
+  app.classList.toggle('example-open', Boolean(!form && example));
   app.innerHTML = '<main><header class="top"><h1>Form Filler</h1><p>Photograph or open a form, write your answers anywhere as plain lines, and get the form back filled in. ' +
     '<b>Everything happens on this device.</b> Nothing is uploaded.</p></header>' +
     (busy ? '<div class="busy" role="status">' + h(busy) + '<div class="bar"><i></i></div></div>' : '') +
     (note ? '<div class="note" role="status">' + h(note) + (pendingTemplate ? ' <button type="button" id="template-anyway" class="secondary">Use it on this form anyway</button>' : '') + '</div>' : '') +
     (keeper.legacy ? '<div class="note warn" id="plain-details" role="status">An earlier version kept your details in this browser in plain text, where another page at this address could read them. Lock them away with a passphrase, or forget them, under <a href="#details-panel">Your details</a>.</div>' : '') +
     (problems.length ? '<div class="note" role="status"><b>Not everything went in as written:</b><ul>' + problems.map(problem => '<li>' + h(problem) + '</li>').join('') + '</ul></div>' : '') +
-    '<section class="panel"><h2>1. The form</h2><div class="tools"><label class="pick">' + (form ? 'Use a different form' : 'Choose the form: a photo, a scan or a PDF') +
+    // No form open: the three ways in, or the example being clicked through. The form picker lives inside "Use my own
+    // form" there, so a form chosen, dropped or pasted on the first screen opens exactly as it always did.
+    (form ? '' : example ? exampleMarkup(example, h) : startMarkup(h, { finding })) +
+    (form ? '<section class="panel"><h2>1. The form</h2><div class="tools"><label class="pick">Use a different form' +
     '<input id="form-file" type="file" accept="image/*,application/pdf,.pdf"></label><label class="pick small">Open a template<input id="template-file" type="file" accept=".json,application/json"></label></div>' +
     '<p class="hint desk">Or drop a form anywhere on this page, or paste a screenshot of one (⌘V / Ctrl+V).</p>' +
-    (form ? '<p class="subtle">' + h(form.name) + ' · ' + form.pages.length + ' page' + (form.pages.length === 1 ? '' : 's') + (busy ? ' · finding the blanks…' : ' · ' + blanks.length + ' blank' + (blanks.length === 1 ? '' : 's') + (remembered ? ' remembered from last time' : ' found')) +
+    '<p class="subtle">' + h(form.name) + ' · ' + form.pages.length + ' page' + (form.pages.length === 1 ? '' : 's') + (busy ? ' · finding the blanks…' : ' · ' + blanks.length + ' blank' + (blanks.length === 1 ? '' : 's') + (remembered ? ' remembered from last time' : ' found')) +
       (form.fieldCount ? ' · ' + form.fieldCount + ' are the PDF’s own fields' : '') + (form.pages[0].angle ? ' · straightened ' + Math.abs(form.pages[0].angle) + '°' : '') + '</p>' +
-      '<div class="tools"><button type="button" id="template-save" class="secondary">Save this form as a template</button>' + (remembered && form.bytes ? '<button type="button" id="refind" class="secondary">Find the blanks again</button>' : '') + '</div>' : '') + '</section>' +
+      '<div class="tools"><button type="button" id="template-save" class="secondary">Save this form as a template</button>' + (remembered && form.bytes ? '<button type="button" id="refind" class="secondary">Find the blanks again</button>' : '') + '</div></section>' : '') +
     (form ? '<div class="work"><section class="panel answers-panel"><h2>2. Your answers</h2><p class="rules">In the form’s order. A <b>period</b> or a <b>new line</b> moves to the next blank; a lone <b>-</b> skips one.' +
       (useDetails && fixed.size ? ' Blanks filled from your details are passed over.' : '') + '</p>' +
       '<details class="more" id="rules-more"' + (store.get('rulesOpen', false) ? ' open' : '') + '><summary>More ways to write answers</summary><p class="rules"><b>4)</b> or <b>4:</b> at the start puts that answer in blank 4. ' +
@@ -698,6 +707,7 @@ app.addEventListener('change', event => {
 });
 app.addEventListener('input', event => {
   const target = event.target;
+  if (example && exampleTyped(example, target.id, target.value)) exampleRefresh(example, app, h);
   if (target.id === 'answers') { answers = target.value; refreshValues(); }
   if (target.dataset.blank && target.type !== 'checkbox' && target.type !== 'radio' && target.tagName !== 'SELECT') { overrides[target.dataset.blank] = target.value; refreshValues(); }
   if (target.dataset.hand) hand.lines[Number(target.dataset.hand)].text = target.value;
@@ -706,6 +716,11 @@ app.addEventListener('toggle', event => { if (event.target.id === 'details-panel
 app.addEventListener('click', event => {
   const target = event.target.closest('button');
   if (!target) return;
+  // The first screen and the example. "Find a form" has nothing to search: it says so where it stands.
+  if (target.id === 'example-start') { example = freshExample(); finding = false; note = ''; render(); }
+  if (target.id === 'example-leave') { example = null; render(); }
+  if (target.id === 'example-find') { finding = true; render(); }
+  if (example && examplePressed(example, target.id)) render();
   if (target.id === 'add-mode') { adding = !adding; render(); }
   if (target.dataset.remove) { blanks = blanks.filter(blank => String(blank.id) !== target.dataset.remove); remember(); render(); }
   if (target.dataset.sign) openPad(target.dataset.sign);

@@ -1,5 +1,26 @@
 # Changes
 
+## 2.9.0 (2026-11-22)
+
+- **The page opens on three ways in**, instead of asking you to find a form first: *try an example*, *use my own
+  form* (the same picker as before: choose, drop or paste a form, or open a template), and *find a form*, which says
+  plainly that there is no library of forms yet and shows nothing rather than made-up results.
+- **A worked example, start to finish in about half a minute.** "Starting a new job in Indiana": one tap opens an
+  invented person's new-hire packet with its answers already in place; change the address once and it lands on both
+  forms that carry it, and on neither of the others; then two previews side by side show what the people office
+  would receive and what payroll would receive, with the bank details in payroll's and not in the other's.
+  Everything in it is invented — the person, the employer, the credit union, both addresses, the account numbers and
+  the three forms, each marked "(invented form)" in its own title. Nothing is sent, nothing is saved, no vault is
+  made, and none of your own details are asked for. Leaving it brings back the three choices and leaves nothing
+  behind. The same example runs in the Mac app.
+- Bank numbers in the example are shown by their last characters, as everywhere else in Form Filler.
+- **Where this is going** is written down in [docs/PAPERWORK_PROPOSAL.md](docs/PAPERWORK_PROPOSAL.md): paperwork
+  brought in however it arrived, a vault of the things forms keep asking for with the documents behind them, a
+  library of forms that says who issued each one and when it was last checked, blank packets sent as one link, and
+  control of what comes out. The example is its first slice; the rest is proposed and not built.
+- Tests: 379 unit tests (370 before); the page's walk is 45 steps (39 before) and the Mac screens' walk 12 (11
+  before), both in Chromium and in WebKit.
+
 ## 2.8.0 (2026-11-21)
 
 - **A Mac app** (phase 2, slice 5): the same page in a window of its own, built with Tauri from `src-tauri/`

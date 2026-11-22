@@ -3,3 +3,6 @@
 # Only invented values belong here. For a Social Security number use one that was never issued, such as
 # 987-65-4321: the gate lets those through without listing them.
 02/30/1980 # Jane Roe's date of birth in the Mac app's walks (scripts/walk-mac.cjs, tests/shell/selftest.js): a day that never was
+02/30/1991 # Avery Nolan's date of birth in the page's worked example (src/app/example-words.js): another day that never was
+999000999 # the invented credit union's routing number in that example: made up here, with no real institution looked up
+4455000122337 # the invented account number in that example: made up here, and the page shows it by its last four characters

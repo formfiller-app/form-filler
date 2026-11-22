@@ -110,3 +110,46 @@ body.dropping::after { content: 'Drop the form to open it'; position: fixed; ins
   html.print-key #recovery-key { position: absolute; left: 0; top: 0; border: 0; }
   html.print-key #recovery-key .tools { display: none; }
 }
+/* v2.9: the three ways in, and the worked example (example.js). Paper-coloured sheets, two or three to a row where
+   there is room, stacked on a phone. */
+.start .choices, .example-forms, .example-shares { display: grid; gap: 12px; }
+.choice { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.choice h3 { margin: 0 0 4px; }
+.choice p { margin: 0 0 8px; color: var(--muted); font-size: .95rem; }
+.choice .not-built { color: #9a3412; font-size: .85rem; margin: 6px 0 0; }
+.choice .hint { margin-top: 6px; }
+.example-head h2 { margin-bottom: 4px; }
+.example-sheet { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fdfdfb; }
+.example-sheet h4 { font-size: .95rem; margin: 0 0 2px; }
+.example-sheet h5 { font-size: .9rem; margin: 10px 0 2px; }
+.example-sheet .from, .example-share .from { color: var(--muted); font-size: .8rem; margin: 0 0 8px; }
+.example-sheet .signature { color: var(--muted); font-size: .8rem; margin: 8px 0 0; }
+.fields { margin: 0; display: grid; gap: 2px; }
+.fields .field { display: grid; grid-template-columns: minmax(7.5em, 40%) 1fr; gap: 8px; font-size: .9rem; border-bottom: 1px dotted var(--line); padding: 2px 0; }
+.fields dt { color: var(--muted); }
+.fields dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.fields .field.changed { background: #e3f0e4; border-radius: 4px; }
+.fields .field.changed dd::after { content: ' ← changed'; color: #2f6b3a; font-weight: 600; font-size: .75rem; }
+.fields i { color: var(--muted); font-weight: 400; }
+.example-boxes { margin: 8px 0; }
+.now { color: var(--muted); margin: 8px 0; }
+.now.changed-now { color: #2f6b3a; font-weight: 600; }
+.example-share { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
+.example-share h4 { margin: 0 0 2px; }
+.example-share .bank-yes { color: #9a3412; font-size: .85rem; margin: 0 0 6px; }
+.example-share .bank-no { color: #2f6b3a; font-size: .85rem; margin: 0 0 6px; }
+.ends { color: var(--muted); font-size: .9rem; margin: 10px 0 0; }
+@media (min-width: 700px) {
+  .start .choices { grid-template-columns: repeat(3, 1fr); }
+  .example-forms.two, .example-shares { grid-template-columns: 1fr 1fr; align-items: start; }
+  .example-forms.three { grid-template-columns: repeat(3, 1fr); align-items: start; }
+}
+@media (min-width: 1000px) { #app.example-open { max-width: 1280px; } }
+@media (prefers-color-scheme: dark) {
+  .example-sheet, .example-share { background: #141c19; }
+  .fields .field.changed { background: #1f332a; }
+  .fields .field.changed dd::after { color: #86d29a; }
+  .now.changed-now { color: #86d29a; }
+  .example-share .bank-yes, .choice .not-built { color: #fdba74; }
+  .example-share .bank-no { color: #86d29a; }
+}

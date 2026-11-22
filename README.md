@@ -10,7 +10,7 @@ Mac app, built on your own Mac from this repository: the same page in a window o
 documents, an archive of everything you file, and backups. See [The Mac app](#the-mac-app).
 
 **Open it:** <https://formfiller-app.github.io/form-filler/>. The foot of the page names the version you have; this
-README describes 2.8.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
+README describes 2.9.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
 page was at `swixixle.github.io/form-filler/`. If you used it there, start again at the new address and add it to your
 home screen from there; [Privacy](#privacy) says how to remove what the old one kept.
 
@@ -20,6 +20,23 @@ is planned and not built.
 ## How to use it
 
 The pictures are the page itself, filling an invented form with invented answers.
+
+### Start here: three ways in
+
+The page opens on three choices.
+
+- **Try an example** — a worked example that runs start to finish in about half a minute, with no form to find and
+  nothing of your own typed in. "Starting a new job in Indiana": one tap opens an invented person's new-hire packet
+  with its answers already in place; you change the address once and it lands on both forms that carry it, and on
+  neither of the others; then two previews side by side show what the people office would receive and what payroll
+  would receive, with the bank details in payroll's and not in the other's. Everything in it is invented — the
+  person, the employer, the credit union, both addresses, the account numbers and the three forms, each marked
+  "(invented form)". Nothing is sent, nothing is saved, no vault is made, and leaving it leaves nothing behind.
+- **Use my own form** — what the rest of this section describes: choose a photo, a scan, a screenshot or a PDF, drop
+  one on the page, paste a screenshot of one, or open a template.
+- **Find a form** — ask in plain words ("I'm starting a job in Indiana") instead of knowing the form's number.
+  **Not built**: there is no library of forms yet, so the button says so and shows nothing rather than made-up
+  results. It is the step after the example in [docs/PAPERWORK_PROPOSAL.md](docs/PAPERWORK_PROPOSAL.md).
 
 ### 1. Open the form
 
@@ -180,7 +197,7 @@ What to know before relying on it:
 
 ## Tested in WebKit and Chromium
 
-`scripts/walk.cjs` drives the built page at phone size through 33 steps, using the invented forms in
+`scripts/walk.cjs` drives the built page at phone size through 45 steps, using the invented forms in
 `tests/fixtures`, and checks every PDF it makes with `pdftotext` and pdf-lib. Among them:
 
 - a crooked photo straightened and its 13 blanks found; the same form as a PDF, keeping its own page;
@@ -198,6 +215,9 @@ What to know before relying on it:
 - templates saved and opened on a "new device"; answers handed over in a link;
 - offline: the page opens again and finds blanks with the server gone;
 - a PDF opened in a browser that lacks the newest JavaScript; a planted value in storage that does not run;
+- the three ways in, and the worked example: the packet open and filled, one address change landing on both forms
+  that carry it, the two offices side by side with the bank details in payroll's and not the other's, and nothing of
+  the invented person left in storage;
 - drop, paste and ⌘S on a computer; nothing sent anywhere; no page or console errors.
 
 The checks on GitHub run it on every push, in **Chromium** (on Linux) and in **WebKit** (on a Mac), WebKit being the
@@ -207,8 +227,8 @@ of the "Q" in "Qty" for a checkbox, so every later answer landed one blank late:
 <img src="docs/images/webkit-qty.png" alt="The same table of an invented form in WebKit: before the fix, a blank numbered 4 on the Q of Qty and the cells numbered 5 to 10; now, the cells numbered 4 to 9">
 
 The Mac app's own screens are walked too. `scripts/walk-mac.cjs` clicks through them in Chromium and in WebKit, in
-11 steps: first-run setup; your details kept locked and shown hidden; a form filled, its PDF saved and filed; the
-archive checked and an item moved; the locker; a backup made and checked fully; everything moved aside and restored
+12 steps: first-run setup; your details kept locked and shown hidden; the worked example run inside the app; a
+form filled, its PDF saved and filed; the archive checked and an item moved; the locker; a backup made and checked fully; everything moved aside and restored
 byte for byte; a second restore that goes beside; and the vault forgotten. In that walk the app itself is stood in
 for (`tests/tauri-stand-in.js`, written from the file plugin's source), and its dialogs answer with the folder the
 walk names. `npm run mac:check` then runs inside the app itself, in a test build, against its real file plugin: 17
@@ -218,8 +238,8 @@ through by a script in a first run of their own (6 steps), also when the app is 
 checks on GitHub run the walk of the screens in both engines and the app's Rust tests; the app itself is started only
 on a Mac at hand.
 
-With `--handwriting` the walk also reads two synthetic handwritten pages (35 steps; it downloads the 64 MB model). The
-library, the command line and the app's file code have 370 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+With `--handwriting` the walk also reads two synthetic handwritten pages (47 steps; it downloads the 64 MB model). The
+library, the command line and the app's file code have 379 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without
@@ -480,8 +500,13 @@ The test forms and pages in `tests/fixtures` are invented (`scripts/make-fixture
 
 None of this exists yet. The plan is in [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md); what the code was before it started
 is in [docs/INVENTORY.md](docs/INVENTORY.md), and how phase 2 was built (the Mac app, the vault, the archive and
-backups, all above) is in [docs/PHASE2_PROPOSAL.md](docs/PHASE2_PROPOSAL.md).
+backups, all above) is in [docs/PHASE2_PROPOSAL.md](docs/PHASE2_PROPOSAL.md). The wider direction the worked example
+belongs to — paperwork brought in however it arrived, a vault of the things forms keep asking for with the documents
+behind them, a library of forms, blank packets sent as one link, and control of what comes out — is in
+[docs/PAPERWORK_PROPOSAL.md](docs/PAPERWORK_PROPOSAL.md).
 
+- **A library of forms** to search in plain words, each saying who issued it, where it applies and when it was last
+  checked. The first screen's third choice says it is not built.
 - **Filing by itself**: every PDF made in the app filed as it is made, files dropped into `_Inbox` read and filed,
   and a matter suggested, with anything uncertain left in `_Unsorted`. Today filing is a button you press.
 - **Pre-flight checks** before anything is sent: empty blanks, missing signatures, dates, conflicts.
@@ -498,6 +523,7 @@ by their headers in 2.4.0. A throwaway spike of the
 Mac app has run ([docs/SHELL_SPIKE.md](docs/SHELL_SPIKE.md)), the archive is built as a library and a command
 (2.5.0), the vault keeps your details locked (2.6.0), backups are built as a library and a command, with a
 restore tested by wiping and restoring (2.7.0), and the Mac app with its screens for all three is built (2.8.0).
+The page's first screen and its worked example are 2.9.0, the first slice of the paperwork proposal above.
 What phase 2 still lacks is its own check, done by a person on a real document: wipe, restore, and everything comes
 back.
 

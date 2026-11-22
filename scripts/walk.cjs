@@ -110,6 +110,86 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
     const version = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8')).version;
     assert.match(await page.locator('footer.version').innerText(), new RegExp('^Form Filler ' + version.replace(/\./g, '\\.') + '( · [0-9a-f]{7})?$'), 'the page says which version it is');
   });
+  // The page's first screen, and the worked example behind it (src/app/example.js, its words in example-words.js).
+  // Everything in the example is invented; nothing in it is sent or kept, which the last of these steps checks.
+  await step('the page opens with three ways in: an example, your own form, and finding a form — which is not built and says so', async () => {
+    assert.deepEqual(await page.$$eval('.choice h3', titles => titles.map(title => title.textContent)), ['Try an example', 'Use my own form', 'Find a form']);
+    assert.equal(await page.locator('#form-file').count(), 1, '"Use my own form" is the form picker itself');
+    assert.equal(await page.locator('#template-file').count(), 1);
+    assert.ok(await page.locator('.choice .not-built').first().isVisible(), 'the library of forms is marked as not built');
+    await page.click('#example-find');
+    await page.waitForSelector('#find-nothing');
+    assert.match(await page.locator('#find-nothing').innerText(), /no results rather than made-up ones/, 'nothing is made up in place of a library');
+    assert.equal(await page.locator('.example-sheet, .result').count(), 0, 'and nothing is listed');
+  });
+  await step('try an example: an invented packet of three forms opens in one tap, already filled in', async () => {
+    await page.click('#example-start');
+    await page.waitForSelector('#example-packet');
+    const titles = await page.$$eval('#example-packet .example-sheet h4', found => found.map(item => item.textContent));
+    assert.equal(titles.length, 3);
+    for (const title of titles) assert.match(title, /\(invented form\)$/, title + ' says it is invented');
+    assert.match(await page.locator('#example-filled').innerText(), /^20 blanks$/, 'the packet arrives filled in');
+    assert.equal(await page.locator('#example-packet .fields i').count(), 0, 'no blank is left empty');
+    assert.match(await page.locator('.example-head').innerText(), /Nothing is sent, nothing is saved, no vault is made/);
+    assert.equal(await page.locator('#form-file').count(), 0, 'the example is the whole screen: no form to find');
+    await shot('example-1-packet');
+  });
+  await step('the address is changed once and lands on both forms that carry it, and on no other', async () => {
+    const carried = () => page.$$eval('#example-carrying .example-sheet', sheets => sheets.map(sheet => ({
+      form: sheet.dataset.form,
+      address: sheet.querySelector('[data-field=address] dd')?.textContent,
+      zip: sheet.querySelector('[data-field=zip] dd')?.textContent,
+      marked: [...sheet.querySelectorAll('.field.changed dt')].map(mark => mark.textContent),
+    })));
+    assert.deepEqual(await carried(), [
+      { form: 'withholding', address: '418 Larkspur Lane, Apt 3', zip: '47401', marked: [] },
+      { form: 'deposit', address: '418 Larkspur Lane, Apt 3', zip: '47401', marked: [] },
+    ]);
+    await page.click('#example-move');
+    assert.deepEqual(await carried(), [
+      { form: 'withholding', address: '1620 Mulberry Court', zip: '47803', marked: ['Street address', 'City', 'ZIP code'] },
+      { form: 'deposit', address: '1620 Mulberry Court', zip: '47803', marked: ['Street address', 'City', 'ZIP code'] },
+    ], 'one change, on both forms at once');
+    assert.match(await page.locator('#example-now').innerText(), /Now on both forms below: 1620 Mulberry Court, Terre Haute, IN 47803/);
+    // The third form does not ask for an address, so nothing of it moved.
+    const info = await page.locator('#example-packet [data-form=info]').innerText();
+    assert.ok(!/Mulberry|Larkspur/.test(info), 'the information sheet asks for no address: ' + info.replace(/\n/g, ' · '));
+    // Typed in by hand, it reaches both forms as it is typed, and the box keeps its caret (the screen is not redrawn).
+    await page.$eval('#example-street', box => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); });
+    await page.locator('#example-street').pressSequentially(', rear');
+    assert.deepEqual((await carried()).map(sheet => sheet.address), ['1620 Mulberry Court, rear', '1620 Mulberry Court, rear']);
+    assert.deepEqual(await page.evaluate(() => [document.activeElement.id, document.activeElement.selectionStart === document.activeElement.value.length]), ['example-street', true], 'the box being typed in keeps the caret');
+    await page.click('#example-back');
+    assert.deepEqual((await carried()).map(sheet => sheet.address), ['418 Larkspur Lane, Apt 3', '418 Larkspur Lane, Apt 3']);
+    await page.click('#example-move');
+    await shot('example-2-address');
+  });
+  await step('what the people office would receive and what payroll would receive: only payroll carries the bank details', async () => {
+    await page.click('#example-share');
+    await page.waitForSelector('#share-hr');
+    const hr = await page.locator('#share-hr').innerText(), payroll = await page.locator('#share-payroll').innerText();
+    assert.deepEqual(await page.$$eval('#share-hr h5', found => found.map(item => item.textContent)), ['New Hire Information Sheet (invented form)', 'Indiana State Withholding — Form SW-1 (invented form)']);
+    assert.deepEqual(await page.$$eval('#share-payroll h5', found => found.map(item => item.textContent)), ['Indiana State Withholding — Form SW-1 (invented form)', 'Direct Deposit Authorization (invented form)']);
+    assert.ok(!/Routing number|Account number|Wabash|2337/.test(hr), 'the people office is sent nothing of the bank: ' + hr.replace(/\n/g, ' · '));
+    assert.match(hr, /No bank details\./);
+    assert.match(payroll, /Carries your bank details\./);
+    for (const word of ['Routing number', 'Account number', 'Wabash Mutual Credit Union']) assert.ok(payroll.includes(word), 'payroll is sent ' + word);
+    assert.match(payroll, /Account number\s+•+2337/, 'and the numbers are shown by their last characters, never whole');
+    assert.ok(!payroll.includes('4455000122337') && !payroll.includes('999000999'), 'no bank number is shown whole');
+    assert.ok(!/02\/30\/1991|Emergency/.test(payroll), 'payroll is sent no date of birth and no emergency contact');
+    assert.ok(payroll.includes('1620 Mulberry Court'), 'the address the person changed is the one payroll receives');
+    assert.match(await page.locator('.ends').innerText(), /Nothing was sent, nothing was saved, and no vault was made/);
+    await shot('example-3-offices');
+  });
+  await step('leaving the example brings back the three ways in, and nothing of it was kept anywhere', async () => {
+    await page.click('#example-leave');
+    await page.waitForSelector('#example-start');
+    assert.equal(await page.locator('.choice').count(), 3);
+    assert.equal(await page.locator('#example-packet').count(), 0, 'the example is gone');
+    assert.equal(await page.locator('#form-file').count(), 1, 'and the form picker is back');
+    const kept = await held(page);
+    assert.ok(!/Avery|Nolan|Mulberry|Larkspur|4455|Wabash/.test(kept.plain + JSON.stringify(kept.files)), 'the invented person is in nothing this browser keeps');
+  });
   await step('a crooked phone photo of a form: straightened, and its 13 blanks found', async () => {
     await openForm('form-photo.png', 'blanks found');
     assert.match(await summary(), /13 blanks found · straightened 1\.2°/);
@@ -648,6 +728,17 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
     await page.click('#add-mode'); await page.click('[data-remove="' + dayId + '"]'); await page.click('#add-mode');
     assert.match(await listing(), /10 → its blank was removed/);
     assert.ok(await page.locator('#merge-go').isDisabled(), 'no copies to make with no column matched');
+  });
+  await step('on a computer: the example\'s two forms, and then the two offices, sit side by side', async () => {
+    await page.goto(origin);
+    await page.click('#example-start');
+    const pair = async selector => { const boxes = await page.locator(selector).all(); return Promise.all(boxes.map(box => box.boundingBox())); };
+    const beside = ([left, right], what) => assert.ok(left && right && left.x + left.width <= right.x + 1 && Math.abs(left.y - right.y) < 40, what + ' side by side: ' + JSON.stringify([left, right]));
+    beside(await pair('#example-carrying .example-sheet'), 'the two forms that carry the address');
+    await page.click('#example-share');
+    await page.waitForSelector('#share-hr');
+    beside(await pair('.example-share'), 'what each office receives');
+    await shot('example-4-computer');
   });
   await step('the page will not run inside another page, where that page could read what is typed', async () => {
     const framed = await context.newPage();
