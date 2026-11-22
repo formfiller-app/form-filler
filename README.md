@@ -234,7 +234,9 @@ for (`tests/tauri-stand-in.js`, written from the file plugin's source), and its 
 walk names. `npm run mac:check` then runs inside the app itself, in a test build, against its real file plugin: 17
 checks of the file code (every promise the command line's file interface makes; the home folder reachable only by
 Form Filler's own names; the page under the app's content policy, with nothing fetched), and the screens clicked
-through by a script in a first run of their own (6 steps), also when the app is started as Finder starts it. The
+through by a script in a first run of their own (6 steps), also when the app is started as Finder starts it. Last, in
+a start of its own, the window is closed as its close button closes it: the app must then end by itself within the
+minute, and not stay running with no window. The
 checks on GitHub run the walk of the screens in both engines and the app's Rust tests; the app itself is started only
 on a Mac at hand.
 

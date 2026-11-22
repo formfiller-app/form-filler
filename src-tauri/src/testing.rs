@@ -48,7 +48,9 @@ pub fn test_setting(name: String) -> Option<String> {
     }
 }
 
-// The window hidden, minimized or shown again, to time the page's work while nobody can see it.
+// The window hidden, minimized or shown again, to time the page's work while nobody can see it; and closed, the way
+// the window's close button closes it. It is the app's only window, so the app itself then ends; the check named
+// "quit" (tests/shell/selftest.js) is that it does.
 #[tauri::command]
 pub fn test_window(window: WebviewWindow, state: String) -> Result<(), String> {
     match state.as_str() {
@@ -56,6 +58,7 @@ pub fn test_window(window: WebviewWindow, state: String) -> Result<(), String> {
         "show" => window.show(),
         "minimize" => window.minimize(),
         "unminimize" => window.unminimize(),
+        "close" => window.close(),
         _ => return Err("not a window state".into()),
     }
     .map_err(|error| error.to_string())

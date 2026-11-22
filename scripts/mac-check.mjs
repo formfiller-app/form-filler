@@ -7,7 +7,7 @@
 //   npm run mac:check                              builds the test app first, then runs this
 //   npm run mac:try                                the test app opened for a person to try, with nothing of theirs
 //                                                  in it: see "A trial" below
-//   node scripts/mac-check.mjs [--run files,store,home,page] [--big MB] [--root FOLDER] [--app APP] [--keep]
+//   node scripts/mac-check.mjs [--run files,store,home,page,screens,quit] [--big MB] [--root FOLDER] [--app APP] [--keep]
 //
 // --big MB also backs up, checks and restores a made-up archive of that many megabytes, timed, and watches the app's
 // memory while it does (it needs about four times that much room). --root puts the temporary folder somewhere else
@@ -27,7 +27,7 @@ import { nodeFiles } from '../src/lib/files/node.js';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const option = name => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null;
 const big = Number(option('--big')) || 0, keep = process.argv.includes('--keep');
-const run = (option('--run') || 'files,store,home,page,screens').split(',').filter(Boolean).concat(big ? ['big=' + big] : []);
+const run = (option('--run') || 'files,store,home,page,screens,quit').split(',').filter(Boolean).concat(big ? ['big=' + big] : []);
 const wants = name => run.some(item => item === name || item.startsWith(name + '='));
 const app = resolve(option('--app') || join(repo, 'src-tauri/target/release/bundle/macos/Form Filler Test.app'));
 const program = app.endsWith('.app') ? join(app, 'Contents/MacOS/form-filler') : app;
@@ -59,9 +59,12 @@ const root = join(work, 'root'), data = join(work, 'data'), home = join(work, 'h
 // The app's own screens are clicked through in a start of their own, as a first run: an empty data folder, and a
 // home folder with nothing of Form Filler's in it yet.
 const firstRun = { data: join(work, 'first run/data'), home: join(work, 'first run/home') };
+// Closing the window is tried in a start of its own too, with folders of its own: it ends the app, so nothing else
+// can be checked in that start, and nothing another start made is touched by it.
+const quitRun = { data: join(work, 'quit/data'), home: join(work, 'quit/home') };
 if (!again) setUp();
 function setUp() {
-for (const folder of [firstRun.data, join(firstRun.home, 'Documents'), join(root, 'screens/saved'), join(root, 'screens/drive'), join(root, 'picked'), join(root, 'saved'), files, join(root, 'other'), join(root, 'outside'), join(root, 'locked/.formfiller'), join(root, 'big/archive'), join(root, 'big/drive'), join(root, 'big/restored'), data, join(home, 'Documents'), join(home, '.ff-staging-00000000000000aa'), join(files, '.formfiller'), join(files, '.ff-staging-00000000000000bb')]) mkdirSync(folder, { recursive: true });
+for (const folder of [firstRun.data, join(firstRun.home, 'Documents'), quitRun.data, quitRun.home, join(root, 'screens/saved'), join(root, 'screens/drive'), join(root, 'picked'), join(root, 'saved'), files, join(root, 'other'), join(root, 'outside'), join(root, 'locked/.formfiller'), join(root, 'big/archive'), join(root, 'big/drive'), join(root, 'big/restored'), data, join(home, 'Documents'), join(home, '.ff-staging-00000000000000aa'), join(files, '.formfiller'), join(files, '.ff-staging-00000000000000bb')]) mkdirSync(folder, { recursive: true });
 const gone = Number(spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
 writeFileSync(join(files, 'plain.txt'), 'plain');
 writeFileSync(join(root, 'outside/secret.txt'), 'secret');
@@ -106,7 +109,8 @@ const settings = (option('--defaults') || '').split(',').filter(Boolean).flatMap
 const clicking = ['pick', 'picker', 'print'].some(wants) || process.argv.includes('--front');
 
 // One start of the app, with the checks it is to run and the folders that stand in for its data and your home.
-async function start(checks, folders) {
+// `waiting` is how long the app may take before it is stopped, and `stuck` what to say if it does.
+async function start(checks, folders, { waiting = big ? 3600 : viaOpen ? 240 : 900, stuck = 'no result' } = {}) {
   const inView = big || ['bench', 'page', 'screens', 'pagehidden'].some(name => checks.some(item => item === name || item.startsWith(name + '=')));
   const environment = { FF_TEST_ROOT: root, FF_TEST_DATA: folders.data, FF_TEST_HOME: folders.home, FF_TEST_SCRIPT: join(given, 'selftest.js'), FF_TEST_FIXTURES: given, FF_TEST_RUN: checks.join(','),
     ...(process.argv.includes('--throttled') ? { FF_TEST_THROTTLING: 'default' } : {}), ...(clicking ? {} : { FF_TEST_QUIET: '1' }), ...(inView ? { FF_TEST_WINDOW: 'corner' } : {}) };
@@ -125,7 +129,7 @@ async function start(checks, folders) {
   child.stderr.on('data', piece => process.stderr.write(piece));
   // Started through `open`, the app is not this script's child: it is found by the path of its program.
   const stopApp = () => { if (viaOpen) spawnSync('/usr/bin/pkill', ['-f', program]); };
-  const limit = setTimeout(() => { console.log('STOPPED the app: no result after ' + Math.round((Date.now() - started) / 1000) + ' s'); stopApp(); child.kill('SIGKILL'); }, (big ? 3600 : viaOpen ? 240 : 900) * 1000);
+  const limit = setTimeout(() => { console.log('STOPPED the app: ' + stuck + ' after ' + Math.round((Date.now() - started) / 1000) + ' s'); stopApp(); child.kill('SIGKILL'); }, waiting * 1000);
   let code = await new Promise(done => child.on('exit', (status, signal) => done(signal ? 'stopped by ' + signal : status)));
   clearTimeout(limit); clearInterval(watching);
   // Started through `open`, the app wrote what it had to say into a file, and `open` cannot say how the app ended.
@@ -135,9 +139,14 @@ async function start(checks, folders) {
   }
   return lines.slice(from).some(line => /RESULT \d+ passed, 0 failed/.test(line)) && (viaOpen || code === 0) ? 0 : code === 0 ? 'no result' : code;
 }
-const others = run.filter(item => item !== 'screens');
+const others = run.filter(item => item !== 'screens' && item !== 'quit');
 let code = others.length ? await start(others, { data, home }) : 0;
 if (wants('screens')) { const second = await start(['screens'], firstRun); code = code === 0 ? second : code; }
+// Last, because it ends with the app gone: the window is closed, and the app must end by itself within the minute.
+if (wants('quit')) {
+  const third = await start(['quit'], quitRun, { waiting: 60, stuck: 'the app did not end after its window was closed' });
+  code = code === 0 ? third : code;
+}
 
 // What the app left, looked at from outside.
 const problems = [];

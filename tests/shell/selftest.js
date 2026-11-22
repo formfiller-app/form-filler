@@ -10,6 +10,8 @@
 //   page    the page itself: the invented forms open and their blanks are found, with nothing blocked or fetched
 //   screens the app's own screens, clicked through by this script in a start of their own: setup, your details
 //           hidden, a form filed, the archive, the locker, a backup made and checked, the vault forgotten and restored
+//   quit    the window closed, as its close button closes it: the app itself must then end, and not stay running
+//           with no window (a start of its own, which this ends)
 //   big     (only when asked) a large made-up archive backed up, checked and restored, timed
 //   bench   (only when asked) where the time of a backup's check goes, stage by stage; with "hidden", the same check
 //           again while the window is hidden, to see what macOS does to a page nobody can see
@@ -680,6 +682,15 @@ import { sha256 as hasher } from '@noble/hashes/sha2.js';
 
   const failed = results.filter(passed => !passed).length;
   await say('RESULT ' + (results.length - failed) + ' passed, ' + failed + ' failed');
+  // Asked to end by closing the window, the app must end by itself, as it must when a person closes it. The page
+  // goes with the window, so nothing can be said from here afterwards: the terminal is told first, and it waits for
+  // the app to end (scripts/mac-check.mjs). Where something failed, the run ends the plain way instead, so that
+  // what failed is what the terminal reports.
+  if (!failed && wants('quit')) {
+    await say('CLOSING the window: the app must now end by itself');
+    await invoke('test_window', { state: 'close' });
+    return;
+  }
   await invoke('test_done', { code: failed ? 1 : 0 });
 })().catch(async error => {
   try { await window.__TAURI__.core.invoke('test_report', { what: 'FAIL  the checks themselves stopped: ' + (error?.stack || error) }); await window.__TAURI__.core.invoke('test_done', { code: 2 }); } catch { /* nothing more to say */ }
