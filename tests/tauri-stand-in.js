@@ -24,7 +24,7 @@ const said = (doing, path, error) => 'failed to ' + doing + ' at path: ' + path 
 export function tauriStandIn({ granted = [], links = true, data = null, home = null } = {}) {
   // Each granted folder as it was named and as the disk had it when it was granted: the app works a grant out once,
   // so a link put in a granted folder's place afterwards leads nowhere the page may go.
-  const roots = [], log = [], waiting = [...granted];
+  const roots = [], log = [];
   // The path the system would really work on: as the plugin's resolve_real_path finds it.
   const realOf = async (path, followed = 0) => {
     try { return await realpath(path); } catch { /* not there, or a link that leads nowhere */ }
@@ -38,8 +38,11 @@ export function tauriStandIn({ granted = [], links = true, data = null, home = n
     return parent === path ? path : join(await realOf(parent, followed), basename(path));
   };
   const grant = async folder => { roots.push(folder, await realOf(folder).catch(() => folder)); };
+  // The folders granted from the start are worked out once, before the first path is checked, whichever call comes
+  // first and however many come at once: every check waits for the same working-out.
+  let started = null;
   const within = async real => {
-    while (waiting.length) await grant(waiting.shift());
+    await (started ??= (async () => { for (const folder of granted) await grant(folder); })());
     return roots.some(top => real === top || real.startsWith(top + '/'));
   };
   const check = async path => {

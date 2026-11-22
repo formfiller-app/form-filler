@@ -219,7 +219,7 @@ checks on GitHub run the walk of the screens in both engines and the app's Rust 
 on a Mac at hand.
 
 With `--handwriting` the walk also reads two synthetic handwritten pages (35 steps; it downloads the 64 MB model). The
-library, the command line and the app's file code have 369 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+library, the command line and the app's file code have 370 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without
@@ -446,6 +446,7 @@ node scripts/walk.cjs dist --engine webkit   # the same in WebKit
 node scripts/walk.cjs dist --handwriting     # also reads the synthetic handwritten pages
 node scripts/walk-mac.cjs dist    # the Mac app's screens, clicked through over a stand-in for the app
 node scripts/walk-mac.cjs dist --engine webkit   # the same in WebKit, the app's own engine
+node scripts/walk-mac.cjs dist --slow 20         # the same with every answer of the stand-in 20 ms late
 npm run check:handwriting         # the same reader in Node, with a character error rate
 npm run hooks                     # once, if you will commit: turns on the never-list gate
 ```

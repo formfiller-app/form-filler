@@ -45,6 +45,14 @@ test('what the app says went wrong becomes an error with the system\'s code', ()
   assert.equal(fault(own), own, 'an error that has its code already passes as it is');
 });
 
+test('the stand-in knows its granted folders before it answers anything, however many ask at once', async () => {
+  // (Its first two answers once raced: the second was "forbidden" while the first was still working the grant out.)
+  const dir = temp(), tauri = tauriStandIn({ granted: [dir] });
+  writeFileSync(join(dir, 'a.txt'), 'a'); writeFileSync(join(dir, 'b.txt'), 'b');
+  const answers = await Promise.all([tauri.fs.readFile(join(dir, 'a.txt')), tauri.fs.readFile(join(dir, 'b.txt')), tauri.fs.readDir(dir), tauri.invoke('real_path', { path: dir })]);
+  assert.deepEqual([new TextDecoder().decode(answers[0]), new TextDecoder().decode(answers[1]), answers[2].length], ['a', 'b', 2]);
+});
+
 test('a file that comes as a stream is gathered and appended in pieces, and what is written is what came', async () => {
   const dir = temp(), tauri = tauriStandIn({ granted: [dir] }), files = tauriFiles(tauri, dir, { chunk: 1000, piece: 700 });
   const pieces = [0, 1, 999, 1, 1000, 1001, 5000, 0, 3].map((size, n) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + n * 7) % 256)), whole = joined(pieces);

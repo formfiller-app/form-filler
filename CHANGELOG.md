@@ -43,6 +43,10 @@
   before anything is written; a document's size is asked before it is read into the locker; a backup drive that is
   not plugged in is said to be gone, not empty; and details shown only to be printed are hidden again at the next
   click.
+- **Found by GitHub's own run of the screens' walk**, on its Mac, the first time the branch was pushed: the filing
+  screen was drawn again when the archive's list arrived, and a matter being typed at that moment lost the caret, so
+  what was typed next went nowhere and the form was filed with no matter. The list now arrives without the screen
+  being drawn again, any redraw keeps the caret and what was typed, and the walk types exactly as the list arrives.
 - **Checks**: the archive's and the vault's own tests also run on the app's files and store; `scripts/walk-mac.cjs`
   clicks through every screen in Chromium and in WebKit over a stand-in for the app, moving everything aside and
   restoring it byte for byte; `npm run mac:check` runs the file code and the same clicks inside the app itself,
@@ -52,7 +56,7 @@
   checked fully in 32 s and restored in 85 s. **A window that cannot be seen is several times slower** (macOS slows
   the page of a hidden, minimized or covered window), and a PDF opened in a hidden window waits to be read until the
   window is shown. The screens say to keep the window in view.
-- Tests: 369 unit tests (326 before), 8 in Rust; both walks of the web page pass unchanged.
+- Tests: 370 unit tests (326 before), 8 in Rust; both walks of the web page pass unchanged.
 
 ## 2.7.0 (2026-11-21)
 

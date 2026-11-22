@@ -5,7 +5,9 @@
 // for here by tests/tauri-stand-in.js, over real folders in a temporary place, and a dialog answers with the folder
 // or file the walk names. So this checks the screens and the page's code; scripts/mac-check.mjs checks the same file
 // code inside the app itself. Everything is invented.
-//   node scripts/walk-mac.cjs [dist] [--engine chromium|webkit] [--shots DIR]
+//   node scripts/walk-mac.cjs [dist] [--engine chromium|webkit] [--shots DIR] [--slow MS]
+// --slow makes every answer of the stand-in wait that many milliseconds first, as a slower computer would: what a
+// screen does while its files are still being read then shows (GitHub's Mac found one such thing this way).
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -17,7 +19,7 @@ const playwright = require('playwright');
 
 const folder = path.resolve(process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'dist');
 const option = name => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null;
-const engine = option('--engine') || 'chromium', shots = option('--shots') ? path.resolve(option('--shots')) : null;
+const engine = option('--engine') || 'chromium', shots = option('--shots') ? path.resolve(option('--shots')) : null, slow = Number(option('--slow')) || 0;
 if (!playwright[engine]?.launch) { console.error('Unknown --engine "' + engine + '": use chromium or webkit.'); process.exit(2); }
 const fixtures = path.resolve(__dirname, '../tests/fixtures');
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'form-filler-walk-mac-'));
@@ -73,7 +75,13 @@ const PAGE_SIDE = () => {
   const toBytes = value => value && typeof value === 'object' && '$bytes' in value ? new Uint8Array(Buffer.from(value.$bytes, 'base64')) : value === null ? undefined : value;
   const fromBytes = value => value instanceof Uint8Array ? { $bytes: Buffer.from(value).toString('base64') } : value instanceof Date ? { $date: value.getTime() } : Array.isArray(value) ? value.map(fromBytes)
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, fromBytes(item)])) : value;
+  // One answer can be held back until the walk lets it go: the read of the archive's list, so that the walk can be
+  // typing when it arrives.
+  let held = null;
+  const hold = () => { let release; const waiting = new Promise(done => { release = done; }); held = { waiting, release, reached: false }; return held; };
   const bridge = async (kind, name, args) => {
+    if (slow) await new Promise(done => setTimeout(done, slow));
+    if (held && kind === 'fs' && name === 'readFile' && String(args[0]).endsWith('/.formfiller/index.json')) { const gate = held; held = null; gate.reached = true; await gate.waiting; }
     try {
       if (kind === 'fs' && name === 'open') { handles.set(++nextHandle, await standIn.fs.open(...args.map(toBytes))); return { value: { $handle: nextHandle } }; }
       if (kind === 'fs') return { value: fromBytes(await standIn.fs[name](...args.map(toBytes))) };
@@ -85,7 +93,10 @@ const PAGE_SIDE = () => {
       const answer = answers.length ? answers.shift() : null;
       if (answer) await standIn.grant(answer);
       return { value: answer };
-    } catch (error) { return { error: typeof error === 'string' ? error : String(error?.message || error) }; }
+    } catch (error) {
+      if (process.env.FF_WALK_DEBUG) console.log('      [the stand-in refused] ' + kind + ' ' + name + ' ' + JSON.stringify(args).slice(0, 160) + ' : ' + (typeof error === 'string' ? error : error?.stack || error));
+      return { error: typeof error === 'string' ? error : String(error?.message || error) };
+    }
   };
 
   const server = http.createServer((request, response) => {
@@ -104,6 +115,11 @@ const PAGE_SIDE = () => {
   await context.addInitScript(PAGE_SIDE);
   const page = await context.newPage();
   page.on('pageerror', error => problems.push(error.message));
+  if (process.env.FF_WALK_DEBUG) {
+    page.on('requestfailed', request => console.log('      [a request failed] ' + request.url() + ' : ' + request.failure()?.errorText));
+    page.on('console', message => console.log('      [the page said, ' + message.type() + '] ' + message.text().slice(0, 300)));
+    page.on('response', response => { if (response.status() >= 400) console.log('      [answered ' + response.status() + '] ' + response.url()); });
+  }
   page.on('console', message => { if (message.type() === 'error' && !/^(Estimating resolution|Detected \d+ diacritics)/.test(message.text())) problems.push(message.text()); });
   const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name + '.png'), fullPage: true }); } };
   const act = name => page.click('#desk [data-act="' + name + '"]');
@@ -114,6 +130,10 @@ const PAGE_SIDE = () => {
   const says = (words, timeout = 60000) => page.waitForFunction(wanted => !document.querySelector('#desk .busy') && document.querySelector('#desk').innerText.includes(wanted), words, { timeout });
   const note = (words, timeout = 60000) => page.waitForFunction(wanted => [...document.querySelectorAll('#app .note')].some(item => item.textContent.includes(wanted)), words, { timeout });
   const onForm = () => page.waitForFunction(() => !document.getElementById('app').hidden && document.querySelector('#desk .tab.on')?.textContent === 'Fill a form');
+  // Until something is so on this side (a file on the disk, a line in the stand-in's log): what a click starts may
+  // reach the app a moment later.
+  const until = async (test, what, ms = 20000) => { for (const started = Date.now(); !(await test());) { if (Date.now() - started > ms) throw new Error('waited ' + ms / 1000 + ' s for ' + what); await new Promise(done => setTimeout(done, 25)); } };
+  const asked_ = line => until(() => standIn.log.includes(line), 'the app to be asked: ' + line);
   const openForm = async (name, done) => { await page.setInputFiles('#form-file', path.join(fixtures, name)); await page.waitForFunction(text => !document.querySelector('#app .busy') && (document.querySelector('#app .panel .subtle')?.textContent || '').includes(text), done, { timeout: 120000 }); };
   const openDetails = () => page.evaluate(() => { document.getElementById('details-panel').open = true; });
   const vaultNow = async () => { const vault = await lib.unlockVault(nodeStore(path.join(data, 'vault')), PASSPHRASE); const state = { profile: await vault.readProfile(), documents: await vault.listDocuments() }; vault.lock(); return state; };
@@ -134,7 +154,7 @@ const PAGE_SIDE = () => {
     assert.match(recoveryKey, /^AGE-SECRET-KEY-1[0-9A-Z]{58}$/);
     await shot('mac-1-recovery-key');
     await act('key-print');
-    assert.ok(standIn.log.includes('print page'), 'the app was asked to print');
+    await asked_('print page');
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains('print-desk-key')), true, 'the key alone is on the page to be printed');
     await act('key-kept');
     await page.waitForSelector('#desk [data-act="archive-home"]');
@@ -197,17 +217,30 @@ const PAGE_SIDE = () => {
     const prints = standIn.log.filter(line => line === 'print page').length;
     await page.click('#print');
     await page.waitForFunction(() => document.querySelector('[data-blank]').value === 'Jane Roe');
-    assert.equal(standIn.log.filter(line => line === 'print page').length, prints + 1);
+    await until(() => standIn.log.filter(line => line === 'print page').length === prints + 1, 'the app to be asked to print the form');
     // Shown only to be printed, they are hidden again at the next thing pressed.
     await page.click('#rules-more summary');
     await page.waitForFunction(() => document.querySelector('[data-blank]').value === '••••••oe');
   });
 
   await step('the PDF just made is filed in the archive with the form it was made from, in a matter you name', async () => {
+    // The archive's list is slow to arrive, and the matter is being typed when it does: the screen must not be drawn
+    // again under the typing (on GitHub's Mac it was, and the matter typed just then was lost).
+    const list = hold();
     await page.click('#file-it');
     await page.waitForSelector('#desk [name="file-with"]');
-    await act('file-it'); await says('Say what it is, and who it is with.');
-    await page.fill('[name="file-with"]', 'IRS'); await page.fill('[name="file-matter"]', 'Taxes/2026');
+    await until(() => list.reached, 'the archive\'s list to be asked for');
+    await page.click('[name="file-matter"]'); await page.keyboard.type('Taxes');
+    list.release();
+    await page.waitForSelector('#desk-matters[data-read]', { state: 'attached' });
+    await page.keyboard.type('/2026');
+    const typing = () => page.evaluate(() => [document.activeElement?.name, document.activeElement?.value, document.activeElement?.selectionStart]);
+    assert.deepEqual(await typing(), ['file-matter', 'Taxes/2026', 10], 'the list arrived, and the box being typed in kept its caret and what was typed');
+    // Enter in the box files it. With who it is with still empty it is refused, the screen is drawn again, and the
+    // box being typed in still has the caret and what was typed.
+    await page.keyboard.press('Enter'); await says('Say what it is, and who it is with.');
+    assert.deepEqual(await typing(), ['file-matter', 'Taxes/2026', 10], 'after the screen was drawn again');
+    await page.fill('[name="file-with"]', 'IRS');
     await act('file-it');
     await says('It is in your archive as');
     const made = fs.readdirSync(path.join(archive, 'Taxes/2026'));
@@ -245,8 +278,7 @@ const PAGE_SIDE = () => {
     assert.equal((await desk()).includes('Every file is as it was filed'), false, 'an earlier check is not left standing after a change');
     await page.click('#desk .item summary >> text=IRS · form');
     await page.click('#desk [data-act="reveal"][data-path="' + item + '"]');
-    await page.waitForFunction(() => true);
-    assert.ok(standIn.log.includes('reveal ' + fs.realpathSync(path.join(archive, item))), 'Finder was asked for the item');
+    await asked_('reveal ' + fs.realpathSync(path.join(archive, item)));
     // An item whose name holds a quote is moved like any other.
     const [quoted] = fs.readdirSync(path.join(archive, '_Unsorted'));
     assert.match(quoted, /sent City Hall - A "second" copy$/);

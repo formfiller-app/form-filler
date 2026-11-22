@@ -77,12 +77,14 @@ function counted(files, tell) {
 const meter = words => { let total = 0; return (size, show) => { total += size; if (show) progress(words + ' ' + sizeWords(total) + ' so far.'); }; };
 const pickFolder = async (title, defaultPath) => { const chosen = await tauri.dialog.open({ directory: true, recursive: true, multiple: false, title, ...(defaultPath ? { defaultPath } : {}) }); return typeof chosen === 'string' ? chosen.replace(/\/+$/, '') : null; };
 
-// The screen drawn again. What was typed in its boxes is put back, so a redraw (something started, something failed,
-// the vault locked) never loses it; a passphrase is not: it is read once, by the button that needs it, and gone.
+// The screen drawn again. What was typed in its boxes is put back, and the box being typed in keeps the caret, so a
+// redraw (something started, something failed, the vault locked) never loses what is typed or what is typed next. A
+// passphrase is not put back: it is read once, by the button that needs it, and gone.
 let drawn = '';
 function draw() {
-  const state = ctx.keeper.state;
-  const typed = drawn === screen ? [...root.querySelectorAll('input[name], select[name]')].filter(box => box.type !== 'password' && !box.readOnly).map(box => [box.name, box.value]) : [];
+  const state = ctx.keeper.state, same = drawn === screen, active = document.activeElement;
+  const typed = same ? [...root.querySelectorAll('input[name], select[name]')].filter(box => box.type !== 'password' && !box.readOnly).map(box => [box.name, box.value]) : [];
+  const caret = same && active && active.name && root.contains(active) ? { name: active.name, start: active.selectionStart, end: active.selectionEnd } : null;
   drawn = screen;
   ctx.app.hidden = screen !== 'form';
   const tab = (name, title) => '<button type="button" class="tab' + (screen === name || (name === 'backup' && screen === 'restore') || (name === 'archive' && screen === 'filing') ? ' on' : '') + '" data-go="' + name + '">' + title + '</button>';
@@ -94,7 +96,13 @@ function draw() {
     (screen === 'form' ? note : '<main class="desk-screen">' +
       (working ? '<div class="busy" role="status"><span id="desk-working">' + h(working) + '</span><div class="bar"><i></i></div>' + (stopper ? tools(button('stop', 'Stop')) : '') + '</div>' : '') +
       note + (where ? SCREENS[screen]() : '<p class="subtle">Opening…</p>') + '</main>');
-  for (const [name, value] of typed) { const box = [...root.querySelectorAll('input[name], select[name]')].find(item => item.name === name); if (box && value !== '') box.value = value; }
+  const boxes = [...root.querySelectorAll('input[name], select[name]')];
+  for (const [name, value] of typed) { const box = boxes.find(item => item.name === name); if (box && value !== '') box.value = value; }
+  const box = caret ? boxes.find(item => item.name === caret.name) : null;
+  if (box) {
+    box.focus({ preventScroll: true });
+    if (typeof caret.start === 'number') try { box.setSelectionRange(caret.start, caret.end); } catch { /* a box of a kind that has no caret */ }
+  }
 }
 
 async function go(name) {
@@ -172,7 +180,7 @@ function archiveScreen() {
   const top = '<p>It is <b>' + h(shown(archivePath())) + '</b>.</p>';
   if (!shelf) return panel('Archive', what + top + '<p class="subtle">Reading the archive…</p>');
   if (shelf.problem) return panel('Archive', what + top + '<p class="warn">It could not be read: ' + h(shelf.problem) + '</p>' + tools(button('shelf-again', 'Look again'), button('archive-elsewhere', 'It is somewhere else…')));
-  const { index, report } = shelf, matters = byMatter(index.items), names = [...new Set(index.items.map(item => item.matter))].sort();
+  const { index, report } = shelf, matters = byMatter(index.items);
   const item = entry => '<details class="item"><summary>' + h(itemWords(entry)) + ' <span class="subtle">· ' + entry.files.length + (entry.files.length === 1 ? ' file' : ' files') + '</span></summary>' +
     '<ul>' + entry.files.map(file => '<li>' + h(file.name) + ' <span class="subtle">' + sizeWords(file.bytes) + '</span></li>').join('') + '</ul>' +
     '<div class="tools">' + button('reveal', 'Show in Finder', { path: entry.path }) + '<label class="move">Move to another matter <input name="move:' + h(entry.path) + '" list="desk-matters" placeholder="Taxes/2026" data-enter="move" data-path="' + h(entry.path) + '"></label>' + button('move', 'Move', { path: entry.path }) + '</div></details>';
@@ -182,10 +190,14 @@ function archiveScreen() {
   return panel('Archive', what + top + tools(button('reveal', 'Show it in Finder', { path: '' }), button('shelf-check', 'Check every file'), button('shelf-again', 'Look again')) + found +
     (matters.length ? matters.map(group => '<h3>' + h(group.matter) + '</h3>' + group.items.map(item).join('')).join('') : '<p>Nothing is filed yet. Fill a form, save its PDF, and press “File this PDF in the archive…”.</p>') +
     (loose.length ? '<p class="subtle">Also in the folder, left as they are: ' + h(loose.slice(0, 12).join('; ')) + (loose.length > 12 ? '; and ' + (loose.length - 12) + ' more' : '') + '.</p>' : '') +
-    '<datalist id="desk-matters">' + names.map(name => '<option value="' + h(name) + '">').join('') + '</datalist>');
+    matterList());
 }
-async function readShelf({ again = false } = {}) {
-  if (!holder()) { shelf = null; return draw(); }
+// The matters the archive holds, for the list a matter's box offers.
+const matterNames = () => [...new Set((shelf?.index?.items || []).map(item => item.matter))].sort();
+const matterList = () => '<datalist id="desk-matters"' + (shelf?.index ? ' data-read="yes"' : '') + '>' + matterNames().map(name => '<option value="' + h(name) + '">').join('') + '</datalist>';
+// The archive read into `shelf`, with nothing drawn; readShelf draws the screen once it is.
+async function loadShelf({ again = false } = {}) {
+  if (!holder()) { shelf = null; return; }
   try {
     const files = await archiveFiles(), book = openArchive(files);
     let index = null;
@@ -193,8 +205,8 @@ async function readShelf({ again = false } = {}) {
     index ??= await book.rebuildIndex();
     shelf = { index, book, report: again ? null : shelf?.report ?? null };
   } catch (error) { shelf = { problem: error.message || String(error) }; }
-  draw();
 }
+async function readShelf(options) { await loadShelf(options); draw(); }
 
 // ---------- a filled form filed in the archive ----------
 function filingScreen() {
@@ -202,12 +214,11 @@ function filingScreen() {
   if (filing.done) return panel('Filed', '<p>It is in your archive as <b>' + h(filing.done) + '</b>' + (filing.unsorted ? ', in “' + UNSORTED + '”, because no matter was named' : '') + '.</p>' +
     tools(button('reveal', 'Show in Finder', { path: filing.done }), '<button type="button" class="primary" data-go="form">Back to the form</button>', '<button type="button" class="secondary" data-go="archive">See the archive</button>'));
   if (!holder()) return panel('File in the archive', '<p>Say where your archive lives first; then press “File this PDF in the archive…” again.</p>' + tools('<button type="button" class="primary" data-go="setup">Set up</button>'));
-  const names = [...new Set((shelf?.index?.items || []).map(item => item.matter))].sort();
   return panel('File in the archive', '<p>“' + h(filing.made.name) + '”' + (filing.original ? ' and the form it was made from, “' + h(filing.original.name) + '”,' : '') + ' go into one dated folder in your archive, with a record of what they are and a fingerprint of each.</p>' +
     '<div class="details"><label>What it is<input name="file-title" value="' + h(filing.title) + '"></label><label>Who it is with (an office, a company, a person)<input name="file-with" placeholder="IRS"></label>' +
     '<label>Sent or received<select name="file-direction"><option value="out">Sent, or to be sent</option><option value="in">Received</option></select></label>' +
     '<label>The matter it belongs to (a folder, like Taxes/2026)<input name="file-matter" list="desk-matters" placeholder="Taxes/2026" data-enter="file-it"></label></div>' +
-    '<p class="subtle">With no matter named it goes to “' + UNSORTED + '”, to be moved later. Nothing is guessed.</p><datalist id="desk-matters">' + names.map(name => '<option value="' + h(name) + '">').join('') + '</datalist>' +
+    '<p class="subtle">With no matter named it goes to “' + UNSORTED + '”, to be moved later. Nothing is guessed.</p>' + matterList() +
     tools(button('file-it', 'File it', { kind: 'primary' }), '<button type="button" class="secondary" data-go="form">Not now</button>'));
 }
 
@@ -467,7 +478,13 @@ export async function fileInArchive({ made, original, title }) {
   filing = { made, original, title };
   screen = 'filing'; said = ''; warned = false;
   draw();
-  if (holder() && !shelf?.index) await readShelf();
+  // The matters already in the archive are offered as a matter is typed. They are read behind the screen and put
+  // into its list in place: the screen is not drawn again under someone who has started typing.
+  if (holder() && !shelf?.index) {
+    await loadShelf();
+    const list = screen === 'filing' ? root.querySelector('#desk-matters') : null;
+    if (list) list.outerHTML = matterList();
+  }
 }
 
 // Started by the page once it is drawn. Gives back `changed`, which the page calls when the vault is made, opened,

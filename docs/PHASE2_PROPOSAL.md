@@ -367,6 +367,16 @@ things. Ten were fixed, each with a test; the walk of the screens, started while
 - The first answer to "where are the app's folders", if it failed, was kept, and the vault then looked unreachable
   for good with nothing said. It is asked again, and such a failure is now said on any screen.
 
+Found after that, by GitHub's Mac, on the first push of the branch (2026-11-22). Its run of the screens' walk in
+WebKit filed a form with no matter, though one had been typed. The filing screen was drawn again when the archive's
+list arrived, and a box being typed in at that moment lost the caret: what was typed next went nowhere. A person
+who started typing at once would have met the same. Reproduced here by holding the list's answer back until the walk
+is typing (`--slow` alone did not find it); fixed twice over: that list now arrives with no redraw, and every redraw
+puts the caret back where it was. The walk now types as the list arrives, and again across a redraw. The same hunt
+found a race in the stand-in itself (two first answers at once, the second "forbidden"), which had made one WebKit
+run in several start with the vault "unreachable": the app is not affected, since its data folder is granted before
+its window exists; the stand-in is fixed and tested.
+
 Left as a known limit, from that review: `persisted-scope` grants a remembered folder again at each start by its
 path, links followed. So if a folder that was granted is later replaced by a link (by you, or by another program),
 what the link leads to is within the page's reach after a restart. The screens themselves still refuse to write
