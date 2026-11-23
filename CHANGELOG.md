@@ -16,7 +16,8 @@
   rather than being left out of the screen.
 - Fixed while building it: the lazy vault store in `platform.js` forwarded only four of the store's calls, so
   taking a record out failed inside the app with "remove is not a function" while every test passed. Only clicking
-  found it; the Mac screens' walk now does.
+  found it; the Mac screens' walk now does, and a unit test holds the wrapper to the same calls a store has, so the
+  next one added to the interface cannot be forgotten there.
 - Tests: 414 unit tests (404 before); the Mac screens' walk is 14 steps (13 before), the new one carrying a licence
   from being put in, through its number being hidden and shown, confirmed, and shared three ways, to being taken
   out with its document left behind.

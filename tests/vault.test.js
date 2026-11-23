@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Decrypter, Encrypter } from 'age-encryption';
@@ -29,6 +29,20 @@ const DETAILS = { fullName: 'Jane Roe', email: 'jane@example.org', phone: '555-0
 const SIGNATURE = 'data:image/png;base64,iVBORw0KGgo=';
 const passphrase = 'invented horse battery staple';
 const sealTo = async (recipient, data) => { const encrypter = new Encrypter(); encrypter.addRecipient(recipient); return encrypter.encrypt(data); };
+
+test('the app\'s lazy vault store forwards every call a store has', () => {
+  // platform.js wraps the real store and forwards its calls one by one, by name. When remove() joined the store
+  // interface the wrapper was not grown with it, so taking a record out failed inside the Mac app with "remove is
+  // not a function" while every test here passed: these drive the stores directly and never go through it
+  // (2026-11-23). This keeps the two in step, so the next call added to the interface cannot be forgotten there.
+  const calls = Object.keys(memoryStore()).filter(name => name !== 'dump');   // dump() is the tests' own
+  assert.ok(calls.length >= 5, 'a store has at least get, put, remove, list and clear: ' + calls.join(', '));
+  const source = readFileSync(new URL('../src/app/platform.js', import.meta.url), 'utf8');
+  const from = source.indexOf('export function vaultStore');
+  assert.ok(from >= 0, 'vaultStore() is still in platform.js');
+  const body = source.slice(from, source.indexOf('\n}', from));
+  for (const name of calls) assert.match(body, new RegExp(name + ":\\s*through\\('" + name + "'\\)"), 'vaultStore() forwards ' + name + '()');
+});
 
 for (const [where, make] of Object.entries(STORES)) {
   test('every store takes a file away, with the copy kept of it, and says nothing of one that was never there (' + where + ')', async () => {
