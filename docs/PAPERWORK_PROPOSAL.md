@@ -84,7 +84,7 @@ small door onto the same opening step.
 - **The check that would prove it**: one form, brought in through every door, gives the same fingerprint and the
   same blanks.
 
-## Slice 3: the personal vault, with the documents behind it
+## Slice 3: the personal vault, with the documents behind it (its shape written down, 2026-11-23)
 
 The vault today holds your details and a signature. The direction is wider: identification, bank details, employment
 history and professional credentials, each kept **with the document that proves it**.
@@ -100,7 +100,11 @@ history and professional credentials, each kept **with the document that proves 
   fields, its documents in the locker, and when it was last confirmed. The privacy wall's fifth part already says
   which kinds are shown by their last characters; a new kind must declare which it is.
 - **The risk**: a vault of records is a data model that is hard to change later. It should be written down and
-  reviewed before it is built, and it should carry a version from its first day **[I]**.
+  reviewed before it is built, and it should carry a version from its first day **[I]**. **Written down 2026-11-23**
+  in [VAULT_RECORDS.md](VAULT_RECORDS.md): the record's shape, four kinds with every field declaring what it gives
+  away, how records point at locker documents, what `confirmed` means, where the files live and why, and the rule
+  that stops an older build silently dropping a record whose kind it does not know. Nothing of it is built; it is
+  there to be argued with, and it ends in three questions only the owner can answer.
 - **The check that would prove it**: a licence put in, backed up, restored on an empty machine, and shared three
   ways (number; number and expiry; with the scan), with the share showing exactly what it is about to give.
 
@@ -220,7 +224,8 @@ Two rules this direction must not quietly break:
    applies and when checked, and plain-word search over them, so the third choice on the first screen no longer says
    "not built". Written as data, so a real list can replace the invented one without touching the code. The search
    is model-free, as the rule above requires. What remains of this slice is a real list and its upkeep.
-3. **Slice 3, the vault's records** — the data model written down and reviewed first.
+3. **Slice 3, the vault's records** — the data model is written down ([VAULT_RECORDS.md](VAULT_RECORDS.md),
+   2026-11-23) and waits on the owner's review before anything is built.
 4. **Slice 2's remaining doors** — link and watched folder, in the Mac app.
 5. **Slice 5, packets** — only after 3 and 4, since a packet is a list of library forms and vault fields.
 6. **Slice 6, control** — alongside 5; the encryption and the archive rules exist already.
