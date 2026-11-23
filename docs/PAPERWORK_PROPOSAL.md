@@ -68,7 +68,13 @@ the owner's own trial of the app (`npm run mac:try`) was open and that check reb
 A scan, an upload, a photo, an e-mail attachment, a pasted link. Today the page takes a file; the rest are each a
 small door onto the same opening step.
 
-- **Built already**: choose a file, drop one, paste a screenshot.
+- **Built already**: choose a file, drop one, paste a screenshot, **and open a photograph of a form** — a phone
+  photo, crooked, is straightened and its blanks found from the pixels **[V]** (`tests/fixtures/form-photo.png`;
+  both walks open one, and the Mac app's checks open one too). The owner asked for photos of forms on 2026-11-22;
+  they are not a slice to build, they work today.
+- **Where the effort goes** (owner, 2026-11-22): of everything in this document, being **very good at taking a form
+  in** is one of the two things that matter most — the other is slice 4's search. A library of forms is worth less
+  than a page that reliably opens whatever the person already has, however it reached them.
 - **To build**: open from a link the person pastes (fetched by the Mac app, not the page, so the page keeps its
   promise that nothing leaves the device without being asked); take an e-mail attachment, which in the Mac app means
   a watched folder the person drops mail into, not a mailbox connection **[I]**; and in the app, a `_Inbox` folder
@@ -101,6 +107,15 @@ history and professional credentials, each kept **with the document that proves 
 ## Slice 4: a library of forms
 
 Government, tax, court, medical and bank forms, found by saying what you are doing.
+
+**The owner's answer, 2026-11-22**: aim for **as many relevant forms as possible** — a bank of forms, not a token
+handful. But the count is not what makes it good. The two things it must be excellent at are **finding the form that
+is current** and **taking a form in** (slice 2). A wide library that serves a stale form is worse than a narrow one
+that always lands the person on today's version, or hands them straight back to the upload door.
+
+So the shape changes: the library is a **finder**, not a warehouse. It may hold many entries, and an entry may be no
+more than an issuer, the words people use for the form, where it applies, when it was last checked and a link to the
+official copy. Filling it inside Form Filler is the bonus case, not the entry fee.
 
 - Each form in the library says **who issued it**, **where it applies**, and **when it was last checked**. The last
   of those is the honest part: a form library that does not say how stale it is will quietly mislead people.
@@ -141,6 +156,41 @@ with their own details, and sees exactly which fields and which attachments each
 - **The check that would prove it**: change the address, fill a new form, and show the archive's older item
   unchanged, byte for byte.
 
+## Nothing of your paperwork goes to a model
+
+The owner asked on 2026-11-22 whether a filled-in form goes through Anthropic, and said plainly that it must not.
+It does not, and here is what was read to establish that, so the claim can be re-checked rather than believed.
+
+- **No model provider appears in the shipped code at all.** No Anthropic or other provider's name, no key, no
+  endpoint, in `src/` or `bin/` **[V]**.
+- **The whole page makes two `fetch` calls.** One reads a picture already kept inside a template, from the device
+  **[V]**. The other is the service worker, which returns early on any request that is not from the page's own
+  address **[V]** (`src/app/sw.js`).
+- **One thing is downloaded, and only when asked for.** Pressing *Read handwriting* fetches a TrOCR model from
+  Hugging Face, pinned to an exact revision, kept by the browser afterwards **[V]** (`src/lib/models.js`). That is a
+  download: a file comes in. The README already says it tells Hugging Face your IP address, as any download does.
+- **The reading happens on the device.** The model runs in a worker through ONNX Runtime's WebAssembly, served from
+  the app's own files — `device: 'wasm'` in `src/app/handwriting-worker.js` **[V]**. The form's pixels are never sent
+  anywhere to be read.
+- **The Mac app cannot reach an outside address at all.** Its content policy is `default-src 'none'` with
+  `connect-src 'self' data: ipc: http://ipc.localhost` **[V]** (`src-tauri/tauri.conf.json`), and the app's own
+  checks include "nothing is fetched from anywhere but the app itself", which passes **[V]**.
+
+What *does* go through Anthropic is this repository's code, because it is written in Claude Code. The owner's filled
+forms never have. That distinction is the whole of it.
+
+**The rule this sets for everything ahead.** Slice 4's plain-English search is the one place a model would be the
+obvious tool, so it is the one place to be careful:
+
+1. Matching the words people use against a list of forms needs no model, and a list can be checked by a test. That
+   is the design.
+2. If a model is ever used, it runs **on the device**, as the handwriting reader already does.
+3. If one ever ran elsewhere, it would receive the search words only — never a filled form, never a field from the
+   vault, never a document — it would say so before each use, and it would be refusable without losing the rest.
+4. **The check that would prove it**: no filled form, and nothing out of the vault, is ever an argument to a network
+   call. That is testable the same way `tests/example.test.js` already tests the example's words module for having no
+   `fetch`, no storage and no `navigator`.
+
 ## What none of this changes
 
 The privacy wall in [BUILD_PLAN.md](BUILD_PLAN.md) holds throughout, and the first slice was written to it: the
@@ -159,9 +209,10 @@ Two rules this direction must not quietly break:
 ## Order of work, and what to do first
 
 1. **Slice 1, the example** — built; waiting on the owner's go to reach `main` and the published page.
-2. **Slice 4's smallest half, the library's shape** — a handful of invented forms with issuer, where it applies and
-   when checked, and plain-word search over them, so the third choice on the first screen stops saying "not built".
-   Written as data, so a real list can replace the invented one without touching the code.
+2. **Slice 4's smallest half, the finder's shape** — invented forms with issuer, where it applies and when checked,
+   and plain-word search over them, so the third choice on the first screen stops saying "not built". Written as
+   data, so a real list can replace the invented one without touching the code. This is one of the owner's two
+   priorities, and the search must stay model-free (see above).
 3. **Slice 3, the vault's records** — the data model written down and reviewed first.
 4. **Slice 2's remaining doors** — link and watched folder, in the Mac app.
 5. **Slice 5, packets** — only after 3 and 4, since a packet is a list of library forms and vault fields.
@@ -169,7 +220,9 @@ Two rules this direction must not quietly break:
 
 ## Open questions for the owner
 
-- **How many forms, and who keeps them current?** Slice 4 stands or falls on this.
+- ~~**How many forms, and who keeps them current?**~~ **Answered 2026-11-22**: as many relevant ones as possible,
+  but being good at finding the current form and at taking a form in matters more than the count. Who keeps them
+  current is still open, and it is still the thing slice 4 stands or falls on.
 - **Does a packet ever travel through anything of ours?** If never, slice 5 is files and links only, which is much
   smaller and much safer.
 - **Is the example's packet the right one?** Starting a job was chosen because it is common, has more than one form,
