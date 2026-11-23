@@ -10,7 +10,7 @@ Mac app, built on your own Mac from this repository: the same page in a window o
 documents, an archive of everything you file, and backups. See [The Mac app](#the-mac-app).
 
 **Open it:** <https://formfiller-app.github.io/form-filler/>. The foot of the page names the version you have; this
-README describes 2.11.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
+README describes 2.12.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
 page was at `swixixle.github.io/form-filler/`. If you used it there, start again at the new address and add it to your
 home screen from there; [Privacy](#privacy) says how to remove what the old one kept.
 
@@ -124,9 +124,13 @@ a form and what the app keeps:
   (`~/Library/Application Support/io.github.formfiller-app.form-filler/`). It locks again after 15 minutes left alone.
 - **The locker** is for documents you want kept locked away: an ID, a licence, last year's return. Add one, see the
   list, save a copy back out. Nothing is removed from it in this version.
-- **Records** are in the library from 2.11.0 and not yet on any screen: identification, a bank account, a job, a
-  licence, each pointing at the locker documents that prove it. [docs/VAULT_RECORDS.md](docs/VAULT_RECORDS.md) is
-  the shape and the reasons for it.
+- **Records** are what a form asks for that nobody has to hand: identification, a bank account, a job, a licence.
+  Each keeps its fields, the locker documents that prove it, and when you last said it was still right. A licence
+  number or an account number shows by its last characters until you ask for it. *Share part of it…* lets you tick
+  exactly which fields and which documents would go, writes out what that would be, and says so when something
+  normally hidden would go in full — **nothing is sent from this version**: the screen is there so that what would
+  go can be read first. Taking a record out takes two presses and leaves the documents that proved it in your
+  locker. [docs/VAULT_RECORDS.md](docs/VAULT_RECORDS.md) is the shape and the reasons for it.
 - **The archive** is one plain folder, `~/Form Filler Archive` unless you choose another place for it, that reads
   sensibly in Finder and needs no app. After you save a filled PDF, *File this PDF in the archive…* files it with the
   form it was made from, in a matter you name (or in `_Unsorted`), with a record and a fingerprint of each file. The
@@ -238,7 +242,7 @@ of the "Q" in "Qty" for a checkbox, so every later answer landed one blank late:
 <img src="docs/images/webkit-qty.png" alt="The same table of an invented form in WebKit: before the fix, a blank numbered 4 on the Q of Qty and the cells numbered 5 to 10; now, the cells numbered 4 to 9">
 
 The Mac app's own screens are walked too. `scripts/walk-mac.cjs` clicks through them in Chromium and in WebKit, in
-13 steps: first-run setup; your details kept locked and shown hidden; the worked example and the finder run inside the app; a
+14 steps: first-run setup; your details kept locked and shown hidden; the worked example and the finder run inside the app; records, from a licence put in to a share ticked part by part; a
 form filled, its PDF saved and filed; the archive checked and an item moved; the locker; a backup made and checked fully; everything moved aside and restored
 byte for byte; a second restore that goes beside; and the vault forgotten. In that walk the app itself is stood in
 for (`tests/tauri-stand-in.js`, written from the file plugin's source), and its dialogs answer with the folder the
@@ -252,7 +256,7 @@ checks on GitHub run the walk of the screens in both engines and the app's Rust 
 on a Mac at hand.
 
 With `--handwriting` the walk also reads two synthetic handwritten pages (51 steps; it downloads the 64 MB model). The
-library, the command line and the app's file code have 404 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+library, the command line and the app's file code have 414 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without

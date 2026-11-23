@@ -16,6 +16,8 @@ import { openArchive, UNSORTED } from '../lib/archive.js';
 import { BACKUPS, listBackups, makeBackup, restoreBackup, verifyBackup } from '../lib/backup.js';
 import { MIN_PASSPHRASE } from './keep.js';
 import { ARCHIVE, byMatter, cloudHint, itemWords, restoredWords, sizeWords, verifyWords, whenWords, within } from './desk-words.js';
+import { KIND_NAMES, RECORD_KINDS, fieldsOf, shareOf } from '../lib/record-kinds.js';
+import { confirmedWords, documentWords, hiddenWarning, hidingWords, kindTitle, recordLine, rowsOf, shareWords } from './record-words.js';
 
 const h = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const encoder = new TextEncoder(), decoder = new TextDecoder();
@@ -28,6 +30,10 @@ root.id = 'desk';
 let ctx = null, where = null, screen = 'form', decided = false;
 let said = '', warned = false, working = '', stopper = null;
 let locker = null, adding = null;                 // the locker's list; a document picked, waiting for its title
+let records = null, looking = null;               // the records' list; the one being looked at, read whole
+let making = null;                                // a new record being written: { kind }
+let sharing = null, shownWhole = false;           // what a share would give: { fields: [], documents: [] }; and whether the hidden ones are shown
+let removing = null;                              // a record asked to be taken out, waiting for the second press
 let shelf = null;                                 // the archive as last read: { index, book, report } or { problem }
 let filing = null;                                // a PDF waiting to be filed: { made, original, title }, then .done
 let backups = null, checking = null;              // the backups at the destination; one asked to be checked fully
@@ -92,7 +98,7 @@ function draw() {
     : state === 'unavailable' ? '<span class="lock warn">The vault’s folder could not be reached</span>' + button('reload', 'Try again') : '';
   // Something that went wrong is said wherever you are, the form page included; other notes belong to their screen.
   const note = said && (warned || screen !== 'form') ? '<div class="note' + (warned ? ' warn' : '') + '" role="status">' + said + '</div>' : '';
-  root.innerHTML = '<nav class="desk-bar" aria-label="Form Filler"><div class="tabs">' + tab('form', 'Fill a form') + tab('locker', 'Locker') + tab('archive', 'Archive') + tab('backup', 'Backups') + '</div><div class="lock-state">' + lock + '</div></nav>' +
+  root.innerHTML = '<nav class="desk-bar" aria-label="Form Filler"><div class="tabs">' + tab('form', 'Fill a form') + tab('locker', 'Locker') + tab('records', 'Records') + tab('archive', 'Archive') + tab('backup', 'Backups') + '</div><div class="lock-state">' + lock + '</div></nav>' +
     (screen === 'form' ? note : '<main class="desk-screen">' +
       (working ? '<div class="busy" role="status"><span id="desk-working">' + h(working) + '</span><div class="bar"><i></i></div>' + (stopper ? tools(button('stop', 'Stop')) : '') + '</div>' : '') +
       note + (where ? SCREENS[screen]() : '<p class="subtle">Opening…</p>') + '</main>');
@@ -112,6 +118,7 @@ async function go(name) {
   if (name !== 'filing') filing = null;
   draw();
   if (name === 'locker') await readLocker();
+  if (name === 'records') { looking = null; making = null; sharing = null; shownWhole = false; await readRecords(); }
   if (name === 'archive') await readShelf();
   if (name === 'backup') await readBackups();
 }
@@ -170,6 +177,80 @@ async function readLocker() {
   const vault = ctx.keeper.vault();
   if (!vault) { locker = null; return draw(); }
   try { locker = await vault.listDocuments(); } catch (error) { locker = []; said = h(error.message); warned = true; }
+  draw();
+}
+
+// ---------- records ----------
+// What a form asks for that nobody has to hand: identification, a bank account, a job, a licence. The shape, and
+// why each field shows as it does, is docs/VAULT_RECORDS.md. Nothing here is sent anywhere: a share is shown, so
+// that what would go can be read first, and that is as far as this version takes it.
+function recordsScreen() {
+  const state = ctx.keeper.state;
+  const what = '<p class="subtle">What a form asks for that nobody has to hand: identification, a bank account, a job, a licence. Each keeps the locker documents that prove it, and says when you last said it was still right.</p>';
+  if (state === 'none') return panel('Records', what + '<p>Records are part of your vault. Make your vault first.</p>' + tools('<button type="button" class="primary" data-go="setup">Set up</button>'));
+  if (state !== 'open') return panel('Records', what + '<p>Your records are locked.</p>' + unlockForm());
+  if (making) return makingScreen();
+  if (looking) return lookingScreen();
+  if (records === null) return panel('Records', what + '<p class="subtle">Reading your records…</p>');
+  const rows = records.map(entry => '<li><b>' + h(recordLine(entry)) + '</b> ' + button('record-open', 'Open', { id: entry.id }) + '</li>').join('');
+  return panel('Records', what + (rows ? '<ul class="rows">' + rows + '</ul>' : '<p>You have no records yet.</p>') +
+    // `kind` is the button helper's own word for its class, so the record's kind travels as `newkind`.
+    tools(...KIND_NAMES.map(kind => button('record-new', 'Add ' + article(RECORD_KINDS[kind].title) + '…', { newkind: kind }))));
+}
+const article = title => (/^[aeiou]/i.test(title) ? 'an ' : 'a ') + title.toLowerCase();
+
+// A new record: the fields its kind declares, and which locker documents prove it.
+function makingScreen() {
+  const shape = RECORD_KINDS[making.kind];
+  const boxes = fieldsOf(making.kind).map(([name, label, gives]) =>
+    '<label>' + h(label) + (gives === 'hidden' ? ' <span class="subtle">(shown by its last characters)</span>' : '') +
+    '<input name="record-' + h(name) + '" autocomplete="off"></label>').join('');
+  const papers = (locker || []).map(entry => '<label class="tick"><input type="checkbox" name="proof-' + h(entry.id) + '"> ' + h(entry.title) + '</label>').join('')
+    || '<p class="subtle">There is nothing in your locker yet to prove it with. You can add the record now and put a document in later.</p>';
+  return panel('Add ' + article(shape.title), '<p class="subtle">' + h(shape.about) + '</p>' +
+    '<div class="details"><label>What to call it<input name="record-title" autocomplete="off" data-enter="record-save"></label>' + boxes + '</div>' +
+    '<h3>What proves it</h3>' + papers +
+    tools(button('record-save', 'Keep it', { kind: 'primary' }), button('record-cancel', 'Cancel')));
+}
+
+// One record: its fields, the hidden ones hidden, what proves it, and what a share of it would give.
+function lookingScreen() {
+  const rows = rowsOf(looking, { shown: shownWhole }).map(row =>
+    '<div class="field" data-field="' + h(row.name) + '"><dt>' + h(row.label) + (row.unknown ? ' <span class="subtle">(from a later version)</span>' : '') + '</dt><dd>' + h(row.value) + '</dd></div>').join('')
+    || '<p class="subtle">Nothing is filled in on this record.</p>';
+  const hiding = hidingWords(looking, shownWhole);
+  const papers = looking.documents.map(id => '<li>' + h((locker || []).find(entry => entry.id === id)?.title || 'A document that is no longer in the locker') + '</li>').join('');
+  return panel(h(looking.title), '<p class="subtle">' + h(kindTitle(looking.kind)) + ' · ' + h(confirmedWords(looking)) + ' · ' + h(documentWords(looking)) + '</p>' +
+    (hiding ? '<p class="subtle">' + h(hiding) + ' ' + button('record-whole', shownWhole ? 'Hide them again' : 'Show them') + '</p>' : '') +
+    '<dl class="fields">' + rows + '</dl>' +
+    (papers ? '<h3>What proves it</h3><ul class="rows">' + papers + '</ul>' : '') +
+    (sharing ? sharePart() : '') +
+    tools(button('record-confirm', 'It is still right', { kind: 'primary' }), sharing ? button('share-close', 'Done sharing') : button('share-open', 'Share part of it…'),
+      button('record-remove', 'Take it out of the vault'), '<button type="button" class="secondary" data-go="records">Back</button>'));
+}
+
+// What a share would give, chosen part by part and read before anything goes. Nothing leaves this Mac here: the
+// point of the screen is that what would go can be seen first.
+function sharePart() {
+  const picked = shareOf(looking, sharing);
+  const ticks = rowsOf(looking).map(row => '<label class="tick"><input type="checkbox" name="share-' + h(row.name) + '"' + (sharing.fields.includes(row.name) ? ' checked' : '') + ' data-share="' + h(row.name) + '"> ' + h(row.label) + '</label>').join('');
+  const papers = looking.documents.map(id => '<label class="tick"><input type="checkbox" name="shareDoc-' + h(id) + '"' + (sharing.documents.includes(id) ? ' checked' : '') + ' data-share-doc="' + h(id) + '"> ' + h((locker || []).find(entry => entry.id === id)?.title || id) + '</label>').join('');
+  const warning = hiddenWarning(picked);
+  return '<div class="sharing"><h3>Share part of it</h3><p class="subtle">Choose what would go. Nothing is sent from this version: this is here so that what would go can be read first.</p>' +
+    ticks + (papers ? '<h4>And what proves it</h4>' + papers : '') +
+    '<p class="share-says" id="share-says">' + h(shareWords(picked)) + '</p>' +
+    (warning ? '<p class="warn" id="share-warns">' + h(warning) + '</p>' : '') +
+    (picked.fields.length ? '<dl class="fields share-exact">' + picked.fields.map(one => '<div class="field"><dt>' + h(one.label) + '</dt><dd>' + h(one.value) + '</dd></div>').join('') + '</dl>' : '') + '</div>';
+}
+
+async function readRecords() {
+  const vault = ctx.keeper.vault();
+  if (!vault) { records = null; return draw(); }
+  try {
+    records = await vault.listRecords();
+    locker = await vault.listDocuments();
+    if (looking) looking = await vault.readRecord(looking.id);
+  } catch (error) { records = []; said = h(error.message); warned = true; }
   draw();
 }
 
@@ -273,7 +354,7 @@ function restoreScreen() {
     tools(button('restore-go', 'Restore', { kind: 'primary' }), '<button type="button" class="secondary" data-go="backup">Cancel</button>') + IN_VIEW);
 }
 
-const SCREENS = { setup: setupScreen, locker: lockerScreen, archive: archiveScreen, filing: filingScreen, backup: backupScreen, restore: restoreScreen, form: () => '' };
+const SCREENS = { setup: setupScreen, locker: lockerScreen, records: recordsScreen, archive: archiveScreen, filing: filingScreen, backup: backupScreen, restore: restoreScreen, form: () => '' };
 
 const ACTIONS = {
   lock() { if (!ctx.keeper.lock()) { said = 'Keep your recovery key first, then lock.'; warned = true; draw(); } },   // locked, the screen is drawn again by changed()
@@ -332,6 +413,48 @@ const ACTIONS = {
     });
   },
   'doc-cancel'() { adding = null; draw(); },
+
+  // ---------- records ----------
+  'record-new'(target) { making = { kind: target.dataset.newkind }; said = ''; warned = false; draw(); },
+  'record-cancel'() { making = null; draw(); },
+  'record-save'() {
+    const fields = Object.fromEntries(fieldsOf(making.kind).map(([name]) => [name, field('record-' + name)]).filter(([, value]) => value !== ''));
+    const proof = (locker || []).filter(entry => root.querySelector('input[name="proof-' + CSS.escape(entry.id) + '"]')?.checked).map(entry => entry.id);
+    return run('Keeping it…', async () => {
+      const kept = await ctx.keeper.vault().putRecord({ kind: making.kind, title: field('record-title'), fields, documents: proof });
+      making = null; looking = kept; sharing = null; shownWhole = false;
+      await readRecords();
+      said = 'Kept. Nobody has confirmed it yet.';
+    });
+  },
+  'record-open'(target) {
+    return run('Reading it…', async () => {
+      looking = await ctx.keeper.vault().readRecord(target.dataset.id);
+      sharing = null; shownWhole = false; removing = null;
+      if (!looking) { said = 'That record is no longer in the vault.'; warned = true; await readRecords(); }
+    });
+  },
+  'record-whole'() { shownWhole = !shownWhole; draw(); },
+  'record-confirm'() {
+    return run('Confirming it…', async () => {
+      looking = await ctx.keeper.vault().confirmRecord(looking.id);
+      said = 'Confirmed. Editing it again would not keep that.';
+    });
+  },
+  // Taken out in two presses, as forgetting your details is: the first says what will happen, the second does it.
+  'record-remove'() {
+    if (removing !== looking.id) { removing = looking.id; said = 'Taking it out leaves the documents that prove it in your locker. Press again to take the record out.'; warned = true; return draw(); }
+    const gone = looking.title;
+    return run('Taking it out…', async () => {
+      await ctx.keeper.vault().removeRecord(looking.id);
+      looking = null; sharing = null; removing = null;
+      await readRecords();
+      said = h('“' + gone + '” is out of the vault. What proved it is still in your locker.');
+    });
+  },
+  'share-open'() { sharing = { fields: [], documents: [] }; draw(); },
+  'share-close'() { sharing = null; draw(); },
+
   'doc-add'() {
     const title = field('doc-title'), kind = field('doc-kind') || 'document';
     return adding && run('Sealing it into the locker…', async () => {
@@ -459,6 +582,18 @@ root.addEventListener('click', event => {
   if (target.dataset.go) void go(target.dataset.go);
   else if (ACTIONS[target.dataset.act]) void ACTIONS[target.dataset.act](target);
 });
+// Ticking a part of a share: what it says it would give is worked out again, on the spot.
+root.addEventListener('change', event => {
+  const box = event.target;
+  if (!sharing || !looking) return;
+  const name = box.dataset?.share, id = box.dataset?.shareDoc;
+  if (!name && !id) return;
+  const list = name ? sharing.fields : sharing.documents, one = name || id;
+  sharing = name ? { ...sharing, fields: pick(list, one, box.checked) } : { ...sharing, documents: pick(list, one, box.checked) };
+  draw();
+});
+const pick = (list, one, on) => (on ? [...list.filter(item => item !== one), one] : list.filter(item => item !== one));
+
 root.addEventListener('keydown', event => {
   const act = event.key === 'Enter' && event.target.dataset?.enter;
   if (act && ACTIONS[act] && !working) { event.preventDefault(); void ACTIONS[act](event.target); }
@@ -504,9 +639,14 @@ export function start(context) {
       last = now;
       decide();
       // Locked: what was read from the vault leaves the screen, and so does a note that may name what was in it.
-      if (context.keeper.state !== 'open') { locker = null; adding = null; if (screen === 'locker') { said = ''; warned = false; } }
+      if (context.keeper.state !== 'open') {
+        locker = null; adding = null;
+        records = null; looking = null; making = null; sharing = null; shownWhole = false; removing = null;
+        if (screen === 'locker' || screen === 'records') { said = ''; warned = false; }
+      }
       draw();
       if (screen === 'locker' && context.keeper.state === 'open' && locker === null) void readLocker();
+      if (screen === 'records' && context.keeper.state === 'open' && records === null) void readRecords();
     },
   };
 }

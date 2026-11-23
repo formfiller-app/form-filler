@@ -26,3 +26,19 @@
   html.print-desk-key #desk-key { position: absolute; left: 0; top: 0; border: 0; }
   html.print-desk-key #desk-key .tools { display: none; }
 }
+
+/* Records (desk.js, its words in record-words.js). A record's fields read as a list of label and value, with the
+   hidden ones shown by their last characters until they are asked for; a share is ticked part by part, with what
+   would go written out underneath it. */
+#desk .fields { margin: 10px 0; display: grid; gap: 2px; }
+#desk .fields .field { display: grid; grid-template-columns: minmax(9em, 34%) 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px dotted var(--line); }
+#desk .fields dt { color: var(--muted); }
+#desk .fields dd { margin: 0; overflow-wrap: anywhere; }
+#desk label.tick { display: block; padding: 3px 0; font-size: .95rem; }
+#desk label.tick input { margin-right: 6px; }
+#desk .sharing { margin: 14px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+#desk .sharing h3 { margin: 0 0 2px; font-size: 1rem; }
+#desk .sharing h4 { margin: 10px 0 2px; font-size: .9rem; color: var(--muted); }
+#desk .share-says { margin: 10px 0 0; font-weight: 600; }
+#desk .share-exact { margin-top: 8px; }
+#desk .share-exact .field dd { font-weight: 600; }

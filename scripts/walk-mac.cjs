@@ -122,7 +122,8 @@ const PAGE_SIDE = () => {
   }
   page.on('console', message => { if (message.type() === 'error' && !/^(Estimating resolution|Detected \d+ diacritics)/.test(message.text())) problems.push(message.text()); });
   const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, name + '.png'), fullPage: true }); } };
-  const act = name => page.click('#desk [data-act="' + name + '"]');
+  // A button by what it does, and where more than one does the same thing, by the thing it does it to.
+  const act = (name, data = {}) => page.click('#desk [data-act="' + name + '"]' + Object.entries(data).map(([key, value]) => '[data-' + key + '="' + value + '"]').join(''));
   const go = name => page.click('#desk [data-go="' + name + '"]');
   const desk = () => page.locator('#desk').innerText();
   look = async () => (await desk()) + ' | ' + (await page.locator('#app .note').allInnerTexts()).join(' | ');
@@ -136,7 +137,7 @@ const PAGE_SIDE = () => {
   const asked_ = line => until(() => standIn.log.includes(line), 'the app to be asked: ' + line);
   const openForm = async (name, done) => { await page.setInputFiles('#form-file', path.join(fixtures, name)); await page.waitForFunction(text => !document.querySelector('#app .busy') && (document.querySelector('#app .panel .subtle')?.textContent || '').includes(text), done, { timeout: 120000 }); };
   const openDetails = () => page.evaluate(() => { document.getElementById('details-panel').open = true; });
-  const vaultNow = async () => { const vault = await lib.unlockVault(nodeStore(path.join(data, 'vault')), PASSPHRASE); const state = { profile: await vault.readProfile(), documents: await vault.listDocuments() }; vault.lock(); return state; };
+  const vaultNow = async () => { const vault = await lib.unlockVault(nodeStore(path.join(data, 'vault')), PASSPHRASE); const state = { profile: await vault.readProfile(), documents: await vault.listDocuments(), records: [] }; for (const entry of await vault.listRecords()) state.records.push(await vault.readRecord(entry.id)); vault.lock(); return state; };
   const stamp = () => fs.readdirSync(path.join(drive, 'Form Filler Backups')).filter(name => /^\d{4}-\d{2}-\d{2} \d{4}/.test(name)).sort();
   let recoveryKey = '', item = '', before = null;
 
@@ -357,6 +358,78 @@ const PAGE_SIDE = () => {
     await page.fill('[name="desk-secret"]', PASSPHRASE); await act('unlock');
     await says('Invented ID card');
     await shot('mac-5-locker');
+  });
+
+  await step('records: a licence put in with the scan that proves it, its number hidden until asked for, confirmed, and shared part by part', async () => {
+    await go('records');
+    await says('You have no records yet.');
+    await act('record-new', { newkind: 'credential' });
+    await page.waitForSelector('#desk [name="record-title"]');
+    await page.fill('[name="record-title"]', 'Invented nursing licence');
+    await page.fill('[name="record-number"]', 'INV-44821');
+    await page.fill('[name="record-body"]', 'Invented Board of Nursing');
+    await page.fill('[name="record-expires"]', '02/30/2029');
+    // What proves it: the document the locker step put in.
+    const proof = (await vaultNow()).documents[0];
+    await page.check('[name="proof-' + proof.id + '"]');
+    await act('record-save');
+    await says('Nobody has confirmed it yet.');
+
+    // The vault, read from outside the app: the record is there, with the document that proves it.
+    const kept = (await vaultNow()).records;
+    assert.equal(kept.length, 1);
+    assert.deepEqual([kept[0].kind, kept[0].title, kept[0].documents, kept[0].confirmed], ['credential', 'Invented nursing licence', [proof.id], null]);
+    assert.equal(kept[0].fields.number, 'INV-44821');
+    assert.equal(fs.readFileSync(path.join(data, 'vault/records', kept[0].id + '.age'), 'latin1').startsWith('age-encryption.org/v1'), true, 'and it is sealed like everything else in the vault');
+
+    // Keeping it leaves you looking at it. Go back to the list, where it is named, and open it from there.
+    await page.click('#desk [data-go="records"]');
+    await says('Invented nursing licence · Licence or certification');
+    assert.equal((await desk()).includes('You have no records yet.'), false);
+    await act('record-open', { id: kept[0].id });
+    await says('Never confirmed');
+    let screen = await desk();
+    assert.match(screen, /Number\s+•+4821/, 'the number is shown by its last characters');
+    assert.equal(screen.includes('INV-44821'), false, 'and not in full');
+    assert.match(screen, /Awarded by\s+Invented Board of Nursing/, 'who awarded it is not hidden');
+    assert.match(screen, /One field of this record is shown by its last characters only/);
+    await act('record-whole');
+    await says('INV-44821');
+    assert.match(await desk(), /One field of this record is shown in full/);
+    await act('record-whole');
+    assert.equal((await desk()).includes('INV-44821'), false, 'hidden again');
+
+    await act('record-confirm');
+    await says('Confirmed.');
+    assert.ok((await vaultNow()).records[0].confirmed, 'and the vault says so too');
+
+    // A share, part by part: the number alone, then the number and the expiry, then the scan as well.
+    await act('share-open');
+    await page.waitForSelector('#share-says');
+    assert.match(await page.locator('#share-says').innerText(), /Nothing is chosen yet, so nothing would go\./);
+    await page.check('[data-share="number"]');
+    await page.waitForFunction(() => /This would give Number, and nothing else\./.test(document.querySelector('#share-says')?.textContent || ''), null, { timeout: 15000 });
+    assert.match(await page.locator('#share-warns').innerText(), /Number is normally shown by its last characters only\. It would go in full\./);
+    assert.match(await desk(), /Number\s+INV-44821/, 'and what would go is written out, so it can be read first');
+    await page.check('[data-share="expires"]');
+    await page.waitForFunction(() => /This would give Number and Expires, and nothing else\./.test(document.querySelector('#share-says')?.textContent || ''), null, { timeout: 15000 });
+    await page.check('[data-share-doc="' + proof.id + '"]');
+    await page.waitForFunction(() => /and 1 document, and nothing else\./.test(document.querySelector('#share-says')?.textContent || ''), null, { timeout: 15000 });
+    await shot('mac-records');
+
+    // Nothing of it left the Mac: a share is shown, not sent.
+    for (const file of everyFile(data)) assert.equal(/INV-44821/.test(fs.readFileSync(file, 'latin1')), false, 'the number is in no plain file: ' + path.basename(file));
+
+    // Taken out in two presses, and what proved it stays in the locker.
+    await act('share-close');
+    await act('record-remove');
+    await says('Press again to take the record out.');
+    await act('record-remove');
+    await says('is out of the vault. What proved it is still in your locker.');
+    const after = await vaultNow();
+    assert.deepEqual(after.records, [], 'the record is gone');
+    assert.deepEqual(after.documents.map(entry => entry.title), ['Invented ID card'], 'the document is not');
+    assert.equal(fs.existsSync(path.join(data, 'vault/records', kept[0].id + '.age')), false, 'and its file is gone with it');
   });
 
   await step('a backup is made on the drive you pick, read back, and checked fully with the passphrase', async () => {

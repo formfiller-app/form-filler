@@ -26,7 +26,7 @@ export function vaultStore() {
   let ready = null;
   const made = () => ready ??= storeAt('/vault').catch(error => { ready = null; throw error; });
   const through = name => async (...args) => (await made())[name](...args);
-  return { get: through('get'), put: through('put'), list: through('list'), clear: through('clear') };
+  return { get: through('get'), put: through('put'), remove: through('remove'), list: through('list'), clear: through('clear') };
 }
 
 // What the page keeps besides your details, with the three calls the page's own store has (get, set, drop), answered

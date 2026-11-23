@@ -35,7 +35,7 @@ export const RECORD_KINDS = {
     ],
   },
   employment: {
-    title: 'A job',
+    title: 'Job',
     about: 'One position. A history is a set of these, newest first.',
     fields: [
       ['employer', 'Employer', 'shown'],
@@ -48,7 +48,7 @@ export const RECORD_KINDS = {
     ],
   },
   credential: {
-    title: 'A licence or certification',
+    title: 'Licence or certification',
     about: 'What a body awarded you, and when it runs out.',
     fields: [
       ['number', 'Number', 'hidden'],
