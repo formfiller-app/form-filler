@@ -1,5 +1,31 @@
 # Changes
 
+## 2.11.0 (2026-11-23)
+
+- **The vault holds records**, in the library: identification, a bank account, a job, a licence or certification,
+  each with its fields, the locker documents that prove it, and when it was last confirmed. The shape was written
+  down and reviewed before any of it was built ([docs/VAULT_RECORDS.md](docs/VAULT_RECORDS.md)).
+- **Every field declares what it gives away, and a field that declares nothing is hidden.** A licence number, a
+  bank account number, a supervisor's name and what a job paid show by their last characters; who issued a thing,
+  where it applies and the dates on it show as they are. A field nobody thought about fails towards privacy.
+- **A record whose kind this build does not know is carried through, never dropped.** Adding, changing and removing
+  records leaves it exactly as a newer build left it. Without that, opening a newer vault in an older build and
+  changing one record would silently delete the rest.
+- **Confirming is not editing.** Editing a record sets `changed`; only saying it is still right sets `confirmed`,
+  and a record nobody has confirmed says so rather than showing a date.
+- **A share names its parts**: `shareOf(record, { fields, documents })` gives back exactly what would go, each field
+  with the value and the way it would normally be shown, so sending a hidden field whole is visibly a decision. It
+  refuses a field the record has not got, and a document it does not carry.
+- Removing a record leaves its documents in the locker, and `recordsUsing(documentId)` says which records would lose
+  their proof if a document went.
+- Every store gained `remove(name)`, which takes a file and any copy kept of it: the vault had no way to delete one
+  before. A name the vault would never write is refused, as it already is for reading and writing.
+- A restore now reads every record back as well as every document, and says how many came back, so a restored vault
+  is not reported whole while a record in it is damaged.
+- No kind has a password field. Those belong to the password manager.
+- Tests: 404 unit tests (390 before), including the backup round-trip, which now carries a record and so proves
+  records survive a real backup and restore.
+
 ## 2.10.0 (2026-11-22)
 
 - **"Find a form" is built.** The third way in now searches a bank of twelve invented forms by what you say you are

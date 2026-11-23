@@ -59,6 +59,11 @@ export function tauriStore({ fs, invoke }, folder) {
       await settled(scratch, path);
       if (!prev) await drop(path + '.prev');
     },
+    async remove(name) {
+      const path = at(name);
+      await drop(path);
+      await drop(path + '.prev');
+    },
     async list(prefix = '') { return (await walk()).filter(([name, kind]) => kind === 'file' && name.startsWith(prefix)).map(([name]) => name).sort(); },
     async clear() {
       for (const [name, kind] of await walk()) {

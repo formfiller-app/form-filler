@@ -344,9 +344,9 @@ async function backup() {
       for (const { path, why } of restored.skipped) note('note: skipped ' + path + ': ' + why);
       for (const { folder: where, path } of restored.unfinished) note('note: ' + join(where === 'data' ? data : parent, path) + ' was left by a restore that stopped before it was finished; delete it when you like');
       // What the vault read back. Anyone with its public key could seal a snapshot, but only its key makes its records.
-      const { details, documents } = restored.vault, empty = !details && !documents;
+      const { details, documents, records } = restored.vault, empty = !details && !documents && !records;
       process.stdout.write('Restored the backup made ' + restored.made + ': ' + restored.files + ' file(s) and ' + restored.folders + ' folder(s), each as its manifest lists it; the vault opens and reads back ('
-        + (details ? 'your details' : 'no details') + ', ' + documents + ' locker document(s))' + (empty ? ': if yours held some, this is not a backup you made' : '')
+        + (details ? 'your details' : 'no details') + ', ' + documents + ' locker document(s), ' + records + ' record(s))' + (empty ? ': if yours held some, this is not a backup you made' : '')
         + '. Check the archive with: form-filler archive verify "' + join(parent, restored.placed.at(-1).path) + '"\n');
     }
   } catch (error) {

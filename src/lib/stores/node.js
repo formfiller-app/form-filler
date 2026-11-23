@@ -51,6 +51,11 @@ export function nodeStore(folder) {
       await writeWhole(path, bytes);
       if (!prev) await rm(path + '.prev', { force: true });
     },
+    async remove(name) {
+      const path = at(name);
+      await rm(path, { force: true });
+      await rm(path + '.prev', { force: true });
+    },
     async list(prefix = '') { return (await walk()).filter(([name, kind]) => kind === 'file' && name.startsWith(prefix)).map(([name]) => name).sort(); },
     async clear() {
       for (const [name, kind] of await walk()) {

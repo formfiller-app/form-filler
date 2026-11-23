@@ -31,6 +31,26 @@ const passphrase = 'invented horse battery staple';
 const sealTo = async (recipient, data) => { const encrypter = new Encrypter(); encrypter.addRecipient(recipient); return encrypter.encrypt(data); };
 
 for (const [where, make] of Object.entries(STORES)) {
+  test('every store takes a file away, with the copy kept of it, and says nothing of one that was never there (' + where + ')', async () => {
+    // remove() is what lets a record be taken out of the vault (src/lib/vault.js, removeRecord). Every store has to
+    // have it, and each has its own way of deleting, so each is asked here rather than only the one in memory.
+    const store = make();
+    await store.put('one.age', new Uint8Array([1, 2, 3]));
+    await store.put('one.age', new Uint8Array([4, 5, 6]));          // now there is a kept copy beside it
+    await store.put('under/two.age', new Uint8Array([7]));
+    assert.deepEqual((await store.list()).filter(name => name.endsWith('.age')).sort(), ['one.age', 'under/two.age']);
+    assert.ok(await store.get('one.age.prev'), 'the copy before is there to begin with');
+    await store.remove('one.age');
+    assert.equal(await store.get('one.age'), null, 'the file is gone');
+    assert.equal(await store.get('one.age.prev'), null, 'and so is the copy kept of it');
+    assert.deepEqual((await store.list()).filter(name => name.endsWith('.age')), ['under/two.age'], 'and nothing else went with it');
+    await store.remove('never-there.age');                           // says nothing, as removing nothing should
+    await store.remove('under/two.age');
+    assert.equal(await store.get('under/two.age'), null, 'one inside a folder goes too');
+    // A name the vault would never write is refused rather than acted on, as it is for get and put.
+    if (where !== 'in memory') await assert.rejects(store.remove('not a name.age'), /Not a name in the vault/);
+  });
+
   test('a new vault: its key locked with the passphrase, its recovery key given once, your details locked to the key (' + where + ')', async () => {
     const store = make();
     const { vault, recoveryKey } = await createVault(store, passphrase, FAST);

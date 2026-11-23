@@ -10,7 +10,7 @@ Mac app, built on your own Mac from this repository: the same page in a window o
 documents, an archive of everything you file, and backups. See [The Mac app](#the-mac-app).
 
 **Open it:** <https://formfiller-app.github.io/form-filler/>. The foot of the page names the version you have; this
-README describes 2.10.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
+README describes 2.11.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
 page was at `swixixle.github.io/form-filler/`. If you used it there, start again at the new address and add it to your
 home screen from there; [Privacy](#privacy) says how to remove what the old one kept.
 
@@ -124,6 +124,9 @@ a form and what the app keeps:
   (`~/Library/Application Support/io.github.formfiller-app.form-filler/`). It locks again after 15 minutes left alone.
 - **The locker** is for documents you want kept locked away: an ID, a licence, last year's return. Add one, see the
   list, save a copy back out. Nothing is removed from it in this version.
+- **Records** are in the library from 2.11.0 and not yet on any screen: identification, a bank account, a job, a
+  licence, each pointing at the locker documents that prove it. [docs/VAULT_RECORDS.md](docs/VAULT_RECORDS.md) is
+  the shape and the reasons for it.
 - **The archive** is one plain folder, `~/Form Filler Archive` unless you choose another place for it, that reads
   sensibly in Finder and needs no app. After you save a filled PDF, *File this PDF in the archive…* files it with the
   form it was made from, in a matter you name (or in `_Unsorted`), with a record and a fingerprint of each file. The
@@ -249,7 +252,7 @@ checks on GitHub run the walk of the screens in both engines and the app's Rust 
 on a Mac at hand.
 
 With `--handwriting` the walk also reads two synthetic handwritten pages (51 steps; it downloads the 64 MB model). The
-library, the command line and the app's file code have 390 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+library, the command line and the app's file code have 404 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without
@@ -348,7 +351,8 @@ index knew that have left the archive, and exits 1 if anything is missing, chang
 with `--strict`, also if anything is not recorded. The archive's flags are read strictly, so a misspelt one is
 refused instead of swallowing the file after it.
 
-**The vault** (`src/lib/vault.js` documents it): your details, saved signature and a locker of documents, encrypted
+**The vault** (`src/lib/vault.js` documents it): your details, saved signature, a locker of documents and a set of
+records, encrypted
 with [age](https://age-encryption.org) so every file opens with the stock `age` tool too (`tests/interop.test.js`
 checks that in CI, with age 1.1.1 on Linux). A passphrase locks the vault
 key; the key locks everything else, so a new passphrase rewrites one small file, and the key itself is the recovery
@@ -356,14 +360,32 @@ key, given once when the vault is made. It keeps its files in a store it is hand
 browser's IndexedDB), each written whole (only the locker's list keeps the copy before it, beside it), and each
 record checked when read back so a damaged or swapped file is refused.
 
+**Records** (`src/lib/record-kinds.js`, and [docs/VAULT_RECORDS.md](docs/VAULT_RECORDS.md) for why they are shaped
+this way): the things a form asks for that nobody has to hand — identification, a bank account, a job, a licence —
+each with its fields, the locker documents that prove it, and when somebody last said it is still right. Every field
+declares whether it shows as it is or by its last characters, **and a field that declares nothing is hidden**, so a
+field added in haste fails towards privacy. Writing a record needs a kind this build knows; reading and listing do
+not, and an entry whose kind this build cannot use is carried through untouched rather than dropped, so a newer vault
+opened in an older build loses nothing. Confirming a record is not the same as editing it: editing sets `changed`,
+and only saying it is still right sets `confirmed`. No kind has a password field, and none should: those belong to
+the password manager.
+
 ```js
-import { createVault, unlockVault } from 'form-filler';
+import { createVault, unlockVault, shareOf } from 'form-filler';
 import { nodeStore } from 'form-filler/stores/node';
 
 const store = nodeStore('Test Vault');
 const { vault, recoveryKey } = await createVault(store, 'a few unrelated invented words');
 await vault.writeProfile({ details: { fullName: 'Jane Roe' }, signature: null });
 const again = await unlockVault(store, recoveryKey);   // or the passphrase
+
+const scan = await vault.addDocument({ title: 'A scan of the licence', bytes });
+const licence = await vault.putRecord({
+  kind: 'credential', title: 'Nursing licence', documents: [scan.id],
+  fields: { number: 'INV-44821', body: 'Invented Board of Nursing', expires: '02/30/2029' },
+});
+await vault.confirmRecord(licence.id);                 // somebody looked, and it is still right
+shareOf(licence, { fields: ['number', 'expires'] });   // what a share would hand over, and nothing else
 ```
 
 **Backups** (`src/lib/backup.js` documents them; [docs/RESTORE.md](docs/RESTORE.md) is the README.txt each one

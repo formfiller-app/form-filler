@@ -42,6 +42,7 @@ export function browserStore({ database = 'form-filler-vault', indexedDB = globa
         files.put(new Uint8Array(bytes), name);
       };
     }),
+    remove: name => transaction('readwrite', files => { files.delete(name); files.delete(name + '.prev'); }),
     list: (prefix = '') => transaction('readonly', (files, keep) => {
       const request = files.getAllKeys();
       request.onsuccess = () => keep(request.result.map(String).filter(name => name.startsWith(prefix) && !name.endsWith('.prev')).sort());

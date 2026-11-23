@@ -49,7 +49,7 @@ const STAGING = /^\.ff-staging-[0-9a-f]{16}$/;
 const OTHER = 'a link or other special file: not followed';
 // Said of a snapshot whose vault holds neither your details nor a locker list. Anyone with the vault's public key can
 // seal a snapshot, but only the vault key can make those records.
-const EMPTY = 'it holds no details and no locker documents: if yours held some, this is not a backup you made';
+const EMPTY = 'it holds no details, no locker documents and no records: if yours held some, this is not a backup you made';
 const BLANK = 'YYYY-MM-DD HHMM';   // as long as a stamp, for the room checks made before the manifest gives the date
 const encoder = new TextEncoder();
 const fault = (code, message) => Object.assign(new Error(message), { code });
@@ -522,9 +522,9 @@ const beside = (name, n, file, stamp) => {
 // secret, its details and every locker document read back. Only then is each thing moved into place, with one
 // rename. Nothing is overwritten: whatever is at a place (an empty folder too) stays, and the copy goes beside it.
 // A failure before that leaves nothing behind, and so does a stop asked for with `signal` (an AbortSignal) before
-// then. Returns { made, placed: [{ what, path, beside }], files, folders, bytes, skipped, vault: { details,
+// then. Returns { made, placed: [{ what, path, beside }], files, folders, bytes, skipped, vault: { details, records,
 // documents }, unfinished: [{ folder, path }] }, with each path inside its interface (the data folder, or the
-// archive's parent): `vault` says whether the vault held your details, and how many locker documents; `unfinished`
+// archive's parent): `vault` says whether the vault held your details, and how many locker documents and records; `unfinished`
 // names the staging folders an earlier restore left when it was stopped before it could remove them (killed, or the
 // power went), in "data" or "parent". They are not this restore's, so they are left as they are.
 export async function restoreBackup({ backup, secret, data, archive: { parent, name } = {}, signal } = {}) {
@@ -563,14 +563,16 @@ export async function restoreBackup({ backup, secret, data, archive: { parent, n
         throw new Error('The snapshot holds two names this disk takes for one: ' + (first ? '"' + first + '" and ' : '') + '"' + path + '". Restore onto a disk that tells them apart.');
       }
     }, signal);
-    // The vault, as unpacked, must open with the same secret and read back: its details, and every locker document
-    // checked against its size and SHA-256.
+    // The vault, as unpacked, must open with the same secret and read back: its details, every locker document
+    // checked against its size and SHA-256, and every record, which is read so that a restore cannot report a vault
+    // as whole while a record in it is damaged or from somewhere else.
     let vault = null, held = null;
     try {
       vault = await unlockVault(reading(data, stagingD + '/data/vault'), secret);
-      const profile = await vault.readProfile(), documents = await vault.listDocuments();
+      const profile = await vault.readProfile(), documents = await vault.listDocuments(), records = await vault.listRecords();
       for (const { id } of documents) await vault.readDocument(id);
-      held = { details: profile.saved !== null, documents: documents.length };
+      for (const { id } of records) await vault.readRecord(id);
+      held = { details: profile.saved !== null, documents: documents.length, records: records.length };
     } catch (error) {
       throw fault('EDAMAGED', 'The vault in this backup does not open as it should: ' + error.message + ' Nothing was restored.');
     } finally { vault?.lock(); }

@@ -1,6 +1,6 @@
 {
   "name": "form-filler",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "private": true,
   "license": "MIT",
   "description": "Fill hard forms easily: blanks found from the page or the PDF's own fields, loose answers placed in order, your details and today's date filled, templates, mail merge, handwriting read on the device.",

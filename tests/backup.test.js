@@ -27,14 +27,15 @@ const backUp = async (world, { links = true, to = drive(), data = nodeFiles(worl
 };
 const restore = (world, folder, secret, { links = true, data = nodeFiles(world.data, { links }), parent = nodeFiles(world.root, { links }), name = 'Test Archive' } = {}) =>
   restoreBackup({ backup: nodeFiles(folder, { links }), secret, data, archive: { parent, name } });
-// What a person would check after a restore: every file and folder, byte for byte, and the vault's details and
-// documents as the vault reads them.
+// What a person would check after a restore: every file and folder, byte for byte, and the vault's details,
+// documents and records as the vault reads them.
 const stateOf = async world => {
-  const vault = await unlockVault(nodeStore(join(world.data, 'vault')), PASSPHRASE), documents = [];
+  const vault = await unlockVault(nodeStore(join(world.data, 'vault')), PASSPHRASE), documents = [], records = [];
   for (const entry of await vault.listDocuments()) documents.push([entry.id, hashOf(await vault.readDocument(entry.id))]);
+  for (const entry of await vault.listRecords()) records.push(await vault.readRecord(entry.id));
   const profile = await vault.readProfile();
   vault.lock();
-  return { data: walk(world.data, { folders: true }), archive: walk(world.archive, { folders: true }), profile, documents };
+  return { data: walk(world.data, { folders: true }), archive: walk(world.archive, { folders: true }), profile, documents, records };
 };
 const wipe = world => { for (const name of ['vault', 'templates', 'settings.json']) rmSync(join(world.data, name), { recursive: true, force: true }); rmSync(world.archive, { recursive: true, force: true }); };
 // What is inside one folder of a walk or a dump, by paths inside it.
@@ -393,7 +394,7 @@ test('the command line makes, lists, verifies and restores a backup, reading the
   const folder = made.stdout.trim();
   assert.match(folder, /\/Form Filler Backups\/\d{4}-\d{2}-\d{2} \d{4}$/);
   assert.equal(folder.startsWith(join(to, BACKUPS) + '/'), true);
-  assert.match(made.stderr, /^26 file\(s\) and 19 folder\(s\), \d+\.\d KB, locked to the vault key age1[0-9a-z]{8}…[0-9a-z]{6}; the copy reads back as written\. Made while the vault is locked: form-filler backup verify ".+" --fully proves it opens with your passphrase\.\n$/);
+  assert.match(made.stderr, /^28 file\(s\) and 20 folder\(s\), \d+\.\d KB, locked to the vault key age1[0-9a-z]{8}…[0-9a-z]{6}; the copy reads back as written\. Made while the vault is locked: form-filler backup verify ".+" --fully proves it opens with your passphrase\.\n$/);
   const listed = run(['backup', 'list', join(to, BACKUPS)]);
   assert.equal(listed.status, 0, listed.stderr);
   assert.match(listed.stdout, /^backup {8}\d{4}-\d{2}-\d{2} \d{4}: \d+\.\d KB\n1 backup\(s\) in .+\/Form Filler Backups\.\n$/, 'the backups folder itself may be named');
@@ -402,12 +403,12 @@ test('the command line makes, lists, verifies and restores a backup, reading the
   assert.match(quick.stdout, /^matches {7}snapshot\.tar\.age\nmatches {7}identity\.age\nThe backup made \d{4}-\d{2}-\d{2} \d{4} is whole\.\n$/);
   const fully = run(['backup', 'verify', folder, '--fully'], PASSPHRASE + '\n');
   assert.equal(fully.status, 0, fully.stderr);
-  assert.match(fully.stdout, /^matches {7}snapshot\.tar\.age\nmatches {7}identity\.age\nchecked {7}26 file\(s\) and 19 folder\(s\) against the manifest\nThe backup made \d{4}-\d{2}-\d{2}T[\d:]+[+-]\d{2}:\d{2} is whole\.\n$/);
+  assert.match(fully.stdout, /^matches {7}snapshot\.tar\.age\nmatches {7}identity\.age\nchecked {7}28 file\(s\) and 20 folder\(s\) against the manifest\nThe backup made \d{4}-\d{2}-\d{2}T[\d:]+[+-]\d{2}:\d{2} is whole\.\n$/);
   wipe(world);
   const restored = run(['backup', 'restore', folder, '--data', world.data, '--archive', world.archive], PASSPHRASE + '\n');
   assert.equal(restored.status, 0, restored.stderr);
   assert.equal(restored.stdout.split('\n').slice(0, 4).join('\n'), ['vault', 'templates', 'settings.json'].map(what => 'restored      ' + what + ': ' + join(world.data, what)).join('\n') + '\nrestored      archive: ' + world.archive);
-  assert.match(restored.stdout, /Restored the backup made .+: 26 file\(s\) and 19 folder\(s\), each as its manifest lists it; the vault opens and reads back \(your details, 2 locker document\(s\)\)\. Check the archive with: form-filler archive verify ".+\/Test Archive"\n$/);
+  assert.match(restored.stdout, /Restored the backup made .+: 28 file\(s\) and 20 folder\(s\), each as its manifest lists it; the vault opens and reads back \(your details, 2 locker document\(s\), 1 record\(s\)\)\. Check the archive with: form-filler archive verify ".+\/Test Archive"\n$/);
   const now = await stateOf(world);
   assert.deepEqual([now.data, now.archive, now.profile, now.documents], [before.data, before.archive, before.profile, before.documents]);
   assert.deepEqual(readdirSync(world.root).sort(), ['Test Archive', 'Test Data']);
@@ -591,11 +592,11 @@ test('a snapshot sealed by someone with only the vault\'s public key, holding no
     return [...chosen, { path: 'manifest.json', kind: 'file', bytes: text(JSON.stringify(manifest)) }];
   });
   const report = await verifyBackup(nodeFiles(stranger.copy), { secret: PASSPHRASE });
-  assert.deepEqual([report.ok, report.notes], [true, [{ path: 'data/vault', note: 'it holds no details and no locker documents: if yours held some, this is not a backup you made' }]]);
+  assert.deepEqual([report.ok, report.notes], [true, [{ path: 'data/vault', note: 'it holds no details, no locker documents and no records: if yours held some, this is not a backup you made' }]]);
   wipe(world);
   const result = await restore(world, stranger.copy, PASSPHRASE);
-  assert.deepEqual(result.vault, { details: false, documents: 0 }, 'what the vault held is said, not taken for granted');
-  assert.deepEqual((await restore(world, folder, PASSPHRASE)).vault, { details: true, documents: 2 }, 'and the real backup\'s');
+  assert.deepEqual(result.vault, { details: false, documents: 0, records: 0 }, 'what the vault held is said, not taken for granted');
+  assert.deepEqual((await restore(world, folder, PASSPHRASE)).vault, { details: true, documents: 2, records: 1 }, 'and the real backup\'s');
 });
 
 test('a restore names the staging folders a restore that was killed left behind, and leaves them as they are', async () => {

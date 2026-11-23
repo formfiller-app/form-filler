@@ -9,6 +9,8 @@
 //   profile.age         your details and saved signature, locked to the vault key
 //   locker/index.age    the locker's list: each document's id, title, kind, name, date, size and SHA-256
 //   locker/<id>.age     one document's exact bytes
+//   records/index.age   the records' list: each record's id, kind and title
+//   records/<id>.age    one record: its fields, the locker documents that prove it, and when it was last confirmed
 //
 // Your passphrase unlocks the key (scrypt, at age's own work factor); the key unlocks everything else. So changing the
 // passphrase rewrites one small file, a backup can be made while the vault is locked (it needs only the public half),
@@ -24,9 +26,11 @@
 // A vault lives in a store (stores/memory.js, stores/node.js, stores/browser.js): a few named files, each written whole.
 // The key and your details keep no earlier copy, so a forgotten signature or an old passphrase is gone from the store.
 import { Decrypter, Encrypter, generateX25519Identity, identityToRecipient } from 'age-encryption';
+import { cleanRecordFields, isKnownKind } from './record-kinds.js';
 import { hex, sha256 } from './hash.js';
 
 export const VAULT = 'vault.json', KEY = 'identity.age', PROFILE = 'profile.age', LOCKER = 'locker/index.age';
+export const RECORDS = 'records/index.age';
 // The shortest passphrase taken. Longer is much better: a few unrelated words are easy to remember and hard to guess.
 export const MIN_PASSPHRASE = 8;
 // The highest scrypt work factor (log2) a key file may ask for: age's own is 18, and anything far above is refused
@@ -232,6 +236,24 @@ function unlocked(store, info, identity, now) {
     if (!Array.isArray(index.documents) || index.documents.some(entry => !entry || typeof entry.id !== 'string' || !HEX64.test(entry.sha256 || '') || !Number.isInteger(entry.bytes))) throw fault('EFOREIGN', 'The locker\'s list is not readable.');
     return index.documents;
   };
+  // The records' list. Every entry is carried through, including one whose kind this build does not know: a newer
+  // vault opened in an older build must not lose a record because the older build could not use it. That is why
+  // nothing here filters by kind — see docs/VAULT_RECORDS.md.
+  const recordList = async () => {
+    const index = await read(RECORDS, 'records-index', 'records', 'The records\' list');
+    if (!index) return [];
+    if (!Array.isArray(index.records) || index.records.some(entry => !entry || typeof entry.id !== 'string' || typeof entry.kind !== 'string'))
+      throw fault('EFOREIGN', 'The records\' list is not readable.');
+    return index.records;
+  };
+  const oneRecord = async id => {
+    const entry = (await recordList()).find(item => item.id === id);
+    if (!entry) return null;
+    const data = await read('records/' + id + '.age', 'record', id, 'The record "' + entry.title + '"');
+    if (!data) throw new Error('The record "' + entry.title + '" is missing from the vault.');
+    return { id, kind: data.recordKind || entry.kind, title: data.title, fields: cleanRecordFields(data.fields), documents: [...(data.documents || [])], confirmed: data.confirmed || null, added: data.added || null, changed: data.changed || null, saved: data.saved };
+  };
+
   const profile = async () => {
     const data = await read(PROFILE, 'profile', 'profile', 'Your details');
     return data ? { details: cleanDetails(data.details), signature: cleanSignature(data.signature), saved: data.saved || null } : { details: {}, signature: null, saved: null };
@@ -274,6 +296,66 @@ function unlocked(store, info, identity, now) {
       if (!bytes) throw new Error('The document "' + entry.title + '" is missing from the locker.');
       if (bytes.length !== entry.bytes || await sha256(bytes) !== entry.sha256) throw fault('EFOREIGN', 'The document "' + entry.title + '" is not the one put in the locker: it is damaged, or another was put in its place.');
       return bytes;
+    }),
+    // Every record's id, kind and title, in the order they were put in. A kind this build does not know is listed
+    // like any other: it belongs to somebody.
+    listRecords: inTurn(recordList),
+    // One record, whole: its fields, the documents that prove it, and when it was last confirmed. null if there is
+    // no such record.
+    readRecord: inTurn(oneRecord),
+    // A record put in, or one already there written again. Writing needs a kind this build knows, though reading and
+    // listing do not: a build should not invent a kind it has no fields for. `added` and `confirmed` survive a
+    // rewrite, because editing a record is not the same as confirming it.
+    putRecord: inTurn(async ({ id = null, kind, title, fields = {}, documents: proof = [] } = {}) => {
+      held();
+      if (!isKnownKind(kind)) throw new Error('There is no record kind "' + kind + '" in this build.');
+      if (typeof title !== 'string' || !title.trim()) throw new Error('A record needs a title.');
+      if (!Array.isArray(proof) || proof.some(item => typeof item !== 'string')) throw new Error('A record\'s documents are a list of locker ids.');
+      await guard();
+      const inLocker = new Set((await documents()).map(item => item.id));
+      for (const one of proof) if (!inLocker.has(one)) throw new Error('There is no document ' + one + ' in the locker.');
+      const listed = await recordList();
+      const was = id ? listed.find(item => item.id === id) : null;
+      if (id && !was) throw new Error('There is no record ' + id + ' in this vault.');
+      const older = was ? await oneRecord(id) : null;
+      const now = { id: id || newId(), kind, title: title.trim(), fields: cleanRecordFields(fields), documents: [...proof],
+        confirmed: older ? older.confirmed : null, added: older ? older.added : stamp(), changed: stamp() };
+      const written = await write('records/' + now.id + '.age', { kind: 'record', id: now.id, recordKind: kind, title: now.title, fields: now.fields, documents: now.documents, confirmed: now.confirmed, added: now.added, changed: now.changed });
+      const entry = { id: now.id, kind, title: now.title };
+      await write(RECORDS, { kind: 'records-index', id: 'records', records: was ? listed.map(item => (item.id === id ? entry : item)) : [...listed, entry] });
+      // The same shape readRecord gives back, `saved` and all, so that what a write returns and what a read returns
+      // can be compared without knowing which made it.
+      return { ...now, saved: written.saved };
+    }),
+    // Somebody looked and said this is still right. Only this sets `confirmed`; editing a record does not.
+    confirmRecord: inTurn(async id => {
+      held();
+      await guard();
+      const record = await oneRecord(id);
+      if (!record) throw new Error('There is no record ' + id + ' in this vault.');
+      const now = { ...record, confirmed: stamp() };
+      const written = await write('records/' + id + '.age', { kind: 'record', id, recordKind: record.kind, title: record.title, fields: record.fields, documents: record.documents, confirmed: now.confirmed, added: record.added, changed: record.changed });
+      return { ...now, saved: written.saved };
+    }),
+    // A record taken out. Its documents stay in the locker: a record is a set of fields, a document is a thing you
+    // were given, and throwing away the first should not throw away the second.
+    removeRecord: inTurn(async id => {
+      held();
+      await guard();
+      const listed = await recordList();
+      if (!listed.some(item => item.id === id)) throw new Error('There is no record ' + id + ' in this vault.');
+      await write(RECORDS, { kind: 'records-index', id: 'records', records: listed.filter(item => item.id !== id) });
+      await store.remove('records/' + id + '.age');
+      return true;
+    }),
+    // Which records point at a locker document: what would lose its proof if that document were taken out.
+    recordsUsing: inTurn(async documentId => {
+      const out = [];
+      for (const entry of await recordList()) {
+        const record = await oneRecord(entry.id);
+        if (record && record.documents.includes(documentId)) out.push({ id: record.id, kind: record.kind, title: record.title });
+      }
+      return out;
     }),
     // A new passphrase: the key locked again with it, and no copy of the key file kept that the old one opens. (A copy
     // kept elsewhere, such as in a backup, still does: see the note at the top.)

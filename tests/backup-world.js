@@ -38,8 +38,11 @@ export async function makeWorld(scratch) {
   mkdirSync(data);
   const { vault, recoveryKey } = await createVault(nodeStore(join(data, 'vault')), PASSPHRASE, { ...FAST, now: clock });
   await vault.writeProfile({ details: DETAILS, signature: SIGNATURE });
-  await vault.addDocument({ title: 'Invented ID card', kind: 'id', name: 'card.pdf', bytes: bytes('%PDF- not a real card') });
+  const card = await vault.addDocument({ title: 'Invented ID card', kind: 'id', name: 'card.pdf', bytes: bytes('%PDF- not a real card') });
   await vault.addDocument({ title: 'Invented letter', name: 'letter.txt', bytes: bytes('not a real letter') });
+  // A record, so that every backup and restore here proves records ride along with the rest (docs/VAULT_RECORDS.md).
+  await vault.putRecord({ kind: 'credential', title: 'Invented nursing licence', documents: [card.id],
+    fields: { number: 'INV-44821', body: 'Invented Board of Nursing', kind: 'Registered nurse', expires: '02/30/2029', status: 'Active' } });
   vault.lock();
   mkdirSync(join(data, 'templates'));
   for (const name of ['visitor pass.pdf', 'parking permit.pdf']) {
