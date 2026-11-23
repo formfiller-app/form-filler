@@ -10,7 +10,7 @@ Mac app, built on your own Mac from this repository: the same page in a window o
 documents, an archive of everything you file, and backups. See [The Mac app](#the-mac-app).
 
 **Open it:** <https://formfiller-app.github.io/form-filler/>. The foot of the page names the version you have; this
-README describes 2.9.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
+README describes 2.10.0, and what changed in each version is in [CHANGELOG.md](CHANGELOG.md). Until 2026-11-21 the
 page was at `swixixle.github.io/form-filler/`. If you used it there, start again at the new address and add it to your
 home screen from there; [Privacy](#privacy) says how to remove what the old one kept.
 
@@ -34,9 +34,14 @@ The page opens on three choices.
   "(invented form)". Nothing is sent, nothing is saved, no vault is made, and leaving it leaves nothing behind.
 - **Use my own form** — what the rest of this section describes: choose a photo, a scan, a screenshot or a PDF, drop
   one on the page, paste a screenshot of one, or open a template.
-- **Find a form** — ask in plain words ("I'm starting a job in Indiana") instead of knowing the form's number.
-  **Not built**: there is no library of forms yet, so the button says so and shows nothing rather than made-up
-  results. It is the step after the example in [docs/PAPERWORK_PROPOSAL.md](docs/PAPERWORK_PROPOSAL.md).
+- **Find a form** — ask in plain words ("I'm starting a job in Indiana") instead of knowing the form's number. Each
+  form found says who issued it, where it applies and when it was last checked, and whether Form Filler fills it or
+  hands you to the official site; one checked longer ago than the 180 days the bank promises says so rather than
+  passing as fresh. Two things it will not do: **use a model** — your words are matched against the words each form
+  is known by, which can be read and tested, and nothing you type leaves the device — and **invent a result**, so a
+  question it cannot answer gets nothing back. The forms in it are invented so far, every one, as is each issuer and
+  each address on the web; a real list replaces them without touching the matching. The wider direction is in
+  [docs/PAPERWORK_PROPOSAL.md](docs/PAPERWORK_PROPOSAL.md).
 
 ### 1. Open the form
 
@@ -197,7 +202,7 @@ What to know before relying on it:
 
 ## Tested in WebKit and Chromium
 
-`scripts/walk.cjs` drives the built page at phone size through 45 steps, using the invented forms in
+`scripts/walk.cjs` drives the built page at phone size through 49 steps, using the invented forms in
 `tests/fixtures`, and checks every PDF it makes with `pdftotext` and pdf-lib. Among them:
 
 - a crooked photo straightened and its 13 blanks found; the same form as a PDF, keeping its own page;
@@ -218,6 +223,9 @@ What to know before relying on it:
 - the three ways in, and the worked example: the packet open and filled, one address change landing on both forms
   that carry it, the two offices side by side with the bank details in payroll's and not the other's, and nothing of
   the invented person left in storage;
+- the finder: the whole bank listed with issuer, where it applies and when checked, a stale form marked as stale, a
+  plain-words question narrowing it with the caret staying where it was typed, and a question it cannot answer
+  returning nothing at all;
 - drop, paste and ⌘S on a computer; nothing sent anywhere; no page or console errors.
 
 The checks on GitHub run it on every push, in **Chromium** (on Linux) and in **WebKit** (on a Mac), WebKit being the
@@ -227,7 +235,7 @@ of the "Q" in "Qty" for a checkbox, so every later answer landed one blank late:
 <img src="docs/images/webkit-qty.png" alt="The same table of an invented form in WebKit: before the fix, a blank numbered 4 on the Q of Qty and the cells numbered 5 to 10; now, the cells numbered 4 to 9">
 
 The Mac app's own screens are walked too. `scripts/walk-mac.cjs` clicks through them in Chromium and in WebKit, in
-12 steps: first-run setup; your details kept locked and shown hidden; the worked example run inside the app; a
+13 steps: first-run setup; your details kept locked and shown hidden; the worked example and the finder run inside the app; a
 form filled, its PDF saved and filed; the archive checked and an item moved; the locker; a backup made and checked fully; everything moved aside and restored
 byte for byte; a second restore that goes beside; and the vault forgotten. In that walk the app itself is stood in
 for (`tests/tauri-stand-in.js`, written from the file plugin's source), and its dialogs answer with the folder the
@@ -240,8 +248,8 @@ minute, and not stay running with no window. The
 checks on GitHub run the walk of the screens in both engines and the app's Rust tests; the app itself is started only
 on a Mac at hand.
 
-With `--handwriting` the walk also reads two synthetic handwritten pages (47 steps; it downloads the 64 MB model). The
-library, the command line and the app's file code have 379 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
+With `--handwriting` the walk also reads two synthetic handwritten pages (51 steps; it downloads the 64 MB model). The
+library, the command line and the app's file code have 390 unit tests (`npm test`). 33 of them are known limits, reported as "todo":
 30 of the checkbox labels (9 of those are layouts where a box still gets words that are not its caption), and 3 of
 the blank finder in tables. Two open a backup with the stock `age` tool, and are skipped where it is not installed;
 one of those needs Linux. One types a passphrase at a terminal, which it makes with python3, and is skipped without
@@ -525,7 +533,9 @@ by their headers in 2.4.0. A throwaway spike of the
 Mac app has run ([docs/SHELL_SPIKE.md](docs/SHELL_SPIKE.md)), the archive is built as a library and a command
 (2.5.0), the vault keeps your details locked (2.6.0), backups are built as a library and a command, with a
 restore tested by wiping and restoring (2.7.0), and the Mac app with its screens for all three is built (2.8.0).
-The page's first screen and its worked example are 2.9.0, the first slice of the paperwork proposal above.
+The page's first screen and its worked example are 2.9.0, the first slice of the paperwork proposal above, and the
+finder — a bank of invented forms searched in plain words, with no model and no invented results — is 2.10.0, its
+second.
 What phase 2 still lacks is its own check, done by a person on a real document: wipe, restore, and everything comes
 back.
 

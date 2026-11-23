@@ -36,7 +36,7 @@ const sharesHtml = (state, h) => OFFICES.map(office => preview(office.id, state.
 
 // The three ways in, before any form is open. "Use my own form" is the file picker itself, so a form chosen, dropped
 // or pasted here opens exactly as it did before. "Find a form" is not built: it says so and offers nothing.
-export const startMarkup = (h, { finding = false } = {}) => '<section class="panel start"><h2>Start here</h2>' +
+export const startMarkup = h => '<section class="panel start"><h2>Start here</h2>' +
   '<div class="choices">' +
 
   '<div class="choice"><h3>Try an example</h3><p>Starting a new job in Indiana: an invented packet of three forms, already filled in. ' +
@@ -49,13 +49,9 @@ export const startMarkup = (h, { finding = false } = {}) => '<section class="pan
   '<p class="hint desk">Or drop a form anywhere on this page, or paste a screenshot of one (⌘V / Ctrl+V).</p></div>' +
 
   '<div class="choice"><h3>Find a form</h3><p>Ask in plain words — “I’m starting a job in Indiana” — and get the forms that fit, ' +
-  'each saying who issued it, where it applies and when it was last checked.</p>' +
-  '<div class="tools"><button type="button" id="example-find" class="secondary">Find a form</button></div>' +
-  '<p class="not-built"><b>Not built yet.</b> There is no library of forms here, so this button has nothing to search. ' +
-  'It is the step after the example in docs/PAPERWORK_PROPOSAL.md.</p>' +
-  (finding ? '<p class="note" id="find-nothing">Nothing to search yet: the library of forms is not built, so you get no results rather than made-up ones. ' +
-    'Use your own form, or try the example.</p>' : '') +
-  '</div></div></section>';
+  'each saying who issued it, where it applies and when it was last checked. The forms in it are invented so far.</p>' +
+  '<div class="tools"><button type="button" id="find-start" class="secondary">Find a form</button></div></div>' +
+  '</div></section>';
 
 // The example itself, as one screen that grows in three steps: the packet as it arrives, the address changed in one
 // place and seen on both forms that carry it, and then what each office receives.

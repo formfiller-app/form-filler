@@ -6,7 +6,7 @@
 #   npm run mac:test      the Rust tests (cargo test)
 [package]
 name = "form-filler"
-version = "2.9.0"
+version = "2.10.0"
 description = "Form Filler's Mac app: the page in a window of its own, with real folders"
 edition = "2021"
 rust-version = "1.90"

@@ -116,7 +116,6 @@ body.dropping::after { content: 'Drop the form to open it'; position: fixed; ins
 .choice { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .choice h3 { margin: 0 0 4px; }
 .choice p { margin: 0 0 8px; color: var(--muted); font-size: .95rem; }
-.choice .not-built { color: #9a3412; font-size: .85rem; margin: 6px 0 0; }
 .choice .hint { margin-top: 6px; }
 .example-head h2 { margin-bottom: 4px; }
 .example-sheet { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fdfdfb; }
@@ -150,6 +149,39 @@ body.dropping::after { content: 'Drop the form to open it'; position: fixed; ins
   .fields .field.changed { background: #1f332a; }
   .fields .field.changed dd::after { color: #86d29a; }
   .now.changed-now { color: #86d29a; }
-  .example-share .bank-yes, .choice .not-built { color: #fdba74; }
+  .example-share .bank-yes { color: #fdba74; }
   .example-share .bank-no { color: #86d29a; }
+}
+
+/* v2.10: the finder (find.js). A search box over a bank of invented forms, each card saying who issued it, where it
+   applies and how long ago it was checked. Two cards to a row where there is room, one on a phone. */
+.find-head h2 { margin-bottom: 4px; }
+.find-box label.wide { display: block; font-weight: 600; margin: 0 0 8px; }
+.find-box label.wide input { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; font-size: 1.05rem; box-sizing: border-box; }
+.find-tries { align-items: center; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: inherit; padding: 4px 10px; font-size: .85rem; cursor: pointer; }
+.chip:hover { border-color: var(--muted); }
+.find-box .count { color: var(--muted); font-size: .9rem; margin: 10px 0; }
+.found-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.found { border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; padding: 10px 12px; background: #fdfdfb; }
+.found h4 { margin: 0 0 2px; font-size: .95rem; }
+.found .summary { margin: 0 0 8px; color: var(--muted); font-size: .9rem; }
+.found .about { margin: 0; display: grid; grid-template-columns: minmax(6.5em, 32%) 1fr; gap: 2px 8px; font-size: .85rem; }
+.found .about dt { color: var(--muted); }
+.found .about dd { margin: 0; overflow-wrap: anywhere; }
+.found .ago { color: var(--muted); }
+.found .happens { margin: 8px 0 0; font-size: .85rem; color: #2f6b3a; }
+.found.elsewhere { border-left-color: var(--muted); }
+.found.elsewhere .happens { color: #9a3412; }
+.found.stale { border-left-color: #9a3412; }
+.found.stale .checked .ago { color: #9a3412; font-weight: 600; }
+.found .official { margin: 8px 0 0; font-size: .8rem; color: var(--muted); }
+.found .official code { overflow-wrap: anywhere; }
+@media (min-width: 900px) { .found-list { grid-template-columns: 1fr 1fr; align-items: start; } }
+@media (min-width: 1000px) { #app.find-open { max-width: 1120px; } }
+@media (prefers-color-scheme: dark) {
+  .found { background: #141c19; }
+  .found .happens { color: #86d29a; }
+  .found.elsewhere .happens, .found.stale .checked .ago { color: #fdba74; }
+  .found.stale { border-left-color: #fdba74; }
 }

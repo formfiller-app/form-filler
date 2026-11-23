@@ -1,5 +1,26 @@
 # Changes
 
+## 2.10.0 (2026-11-22)
+
+- **"Find a form" is built.** The third way in now searches a bank of twelve invented forms by what you say you are
+  doing — "I'm starting a job in Indiana", "I moved house", "somebody owes me money". Each form found says who
+  issued it, where it applies, when it was last checked, what it is for, and whether Form Filler fills it or hands
+  you to the official site. A form checked longer ago than the 180 days the bank promises is marked, and says how
+  far behind it is, rather than passing as fresh.
+- **No model, and nothing sent.** Your words are cut up, the words too common to tell two forms apart are dropped
+  whole-word only (so "in" goes and "Indiana" stays), and what is left is matched against the words each form is
+  known by, with more weight for saying a whole phrase a form is known by and for naming the place it applies in.
+  All of it can be read, argued with and tested; none of it leaves the device, because nothing leaves the device.
+- **No invented results.** A question the bank cannot answer returns nothing and says why. The bar rises with the
+  length of the question: one word in common is enough when one word was asked ("court" finds the court's forms) and
+  not enough when five were, so a long question is never answered by a form that shares one word with it.
+- Every form in it is invented, as are its issuer and its address on the web, and every title says so. A real list
+  replaces them without touching the matching.
+- Typing in the search box redraws only the results, so the box keeps its caret and its selection.
+- Tests: 390 unit tests (379 before); the page's walk is 49 steps (45 before) and the Mac screens' walk 13 (12
+  before). The new steps cover the bank as listed, a search that narrows it, the caret, a question with no answer,
+  the cards two to a row on a computer, and the finder running inside the Mac app.
+
 ## 2.9.0 (2026-11-22)
 
 - **The page opens on three ways in**, instead of asking you to find a form first: *try an example*, *use my own

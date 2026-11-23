@@ -112,15 +112,57 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
   });
   // The page's first screen, and the worked example behind it (src/app/example.js, its words in example-words.js).
   // Everything in the example is invented; nothing in it is sent or kept, which the last of these steps checks.
-  await step('the page opens with three ways in: an example, your own form, and finding a form — which is not built and says so', async () => {
+  await step('the page opens with three ways in: an example, your own form, and finding a form', async () => {
     assert.deepEqual(await page.$$eval('.choice h3', titles => titles.map(title => title.textContent)), ['Try an example', 'Use my own form', 'Find a form']);
     assert.equal(await page.locator('#form-file').count(), 1, '"Use my own form" is the form picker itself');
     assert.equal(await page.locator('#template-file').count(), 1);
-    assert.ok(await page.locator('.choice .not-built').first().isVisible(), 'the library of forms is marked as not built');
-    await page.click('#example-find');
+    assert.equal(await page.locator('.not-built').count(), 0, 'nothing on the first screen is marked unbuilt any more');
+    assert.equal(await page.locator('#find-start').count(), 1, 'the third choice opens the finder');
+  });
+  // The finder (src/app/find.js, its forms and matching in find-words.js). Every form in it is invented, the matching
+  // uses no model, and a question it cannot answer gets nothing rather than something plausible.
+  await step('find a form: the whole bank of invented forms is listed, each saying who issued it, where it applies and when it was checked', async () => {
+    await page.click('#find-start');
+    await page.waitForSelector('#find-query');
+    assert.equal(await page.locator('#form-file').count(), 0, 'the finder has the screen while it is open');
+    const titles = await page.$$eval('.found h4', heads => heads.map(head => head.textContent));
+    assert.ok(titles.length >= 10, 'a bank, not a handful: ' + titles.length + ' forms');
+    for (const title of titles) assert.match(title, /\(invented form\)$/, title + ' says it is invented');
+    assert.match(await page.locator('#find-count').innerText(), new RegExp('All ' + titles.length + ' invented forms'));
+    const about = await page.$$eval('.found .about dt', terms => [...new Set(terms.map(term => term.textContent))]);
+    assert.deepEqual(about, ['Issued by', 'Applies in', 'Last checked'], 'every card says all three');
+    assert.ok(await page.locator('.found.stale').count() >= 1, 'a form checked longer ago than promised says so, rather than passing as fresh');
+    assert.ok(await page.locator('.found.elsewhere').count() >= 1, 'a form whose blanks are not understood says it opens at the official site');
+    await shot('find-1-bank');
+  });
+  await step('find a form: asking in plain words narrows the bank, and the caret stays where it was typed', async () => {
+    await page.click('#find-try-0');
+    await page.waitForFunction(() => document.querySelectorAll('.found').length > 0 && document.querySelectorAll('.found').length < 10, null, { timeout: 15000 });
+    const first = await page.$$eval('.found h4', heads => heads.map(head => head.textContent));
+    assert.match(first[0], /Withholding/, 'starting a job in Indiana puts the withholding form first, got: ' + first[0]);
+    assert.ok(first.length < 10, 'and leaves the forms that have nothing to do with it out: ' + first.length + ' shown');
+    assert.match(await page.locator('#find-count').innerText(), /of \d+ forms match/);
+    // Typed into rather than clicked: the results change under the box and the caret is not thrown to the start.
+    await page.fill('#find-query', '');
+    await page.click('#find-query');
+    await page.locator('#find-query').pressSequentially('a doctor wants my records');
+    await page.waitForFunction(() => /Medical Records/.test(document.body.textContent), null, { timeout: 15000 });
+    assert.deepEqual(await page.$eval('#find-query', box => [box.id, box.selectionStart === box.value.length]), ['find-query', true], 'the caret is still at the end of what was typed');
+    assert.match((await page.$$eval('.found h4', heads => heads.map(head => head.textContent)))[0], /Medical Records/);
+    await shot('find-2-asked');
+  });
+  await step('find a form: a question the bank cannot answer gets nothing, not a nearly-right form', async () => {
+    await page.fill('#find-query', 'how do I register a hot air balloon on Mars');
     await page.waitForSelector('#find-nothing');
-    assert.match(await page.locator('#find-nothing').innerText(), /no results rather than made-up ones/, 'nothing is made up in place of a library');
-    assert.equal(await page.locator('.example-sheet, .result').count(), 0, 'and nothing is listed');
+    assert.equal(await page.locator('.found').count(), 0, 'nothing is listed');
+    assert.match(await page.locator('#find-nothing').innerText(), /no results rather than made-up ones/, 'and it says why');
+    assert.match(await page.locator('#find-count').innerText(), /None of the \d+ forms here match/);
+    await page.click('#find-clear');
+    await page.waitForFunction(() => document.querySelectorAll('.found').length >= 10, null, { timeout: 15000 });
+    await page.click('#find-leave');
+    await page.waitForSelector('#example-start');
+    assert.equal(await page.locator('.choice').count(), 3, 'leaving the finder brings the three ways in back');
+    assert.equal(await page.locator('#form-file').count(), 1, 'and the form picker with them');
   });
   await step('try an example: an invented packet of three forms opens in one tap, already filled in', async () => {
     await page.click('#example-start');
@@ -739,6 +781,15 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
     await page.waitForSelector('#share-hr');
     beside(await pair('.example-share'), 'what each office receives');
     await shot('example-4-computer');
+  });
+  await step('on a computer: the finder\'s cards sit two to a row', async () => {
+    await page.goto(origin);
+    await page.click('#find-start');
+    await page.waitForSelector('.found');
+    const boxes = (await Promise.all((await page.locator('.found').all()).map(card => card.boundingBox()))).slice(0, 2);
+    const [left, right] = boxes;
+    assert.ok(left && right && left.x + left.width <= right.x + 1 && Math.abs(left.y - right.y) < 40, 'two cards side by side: ' + JSON.stringify(boxes));
+    await shot('find-3-computer');
   });
   await step('the page will not run inside another page, where that page could read what is typed', async () => {
     const framed = await context.newPage();

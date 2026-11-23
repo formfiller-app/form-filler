@@ -216,6 +216,25 @@ const PAGE_SIDE = () => {
     await shot('mac-example');
   });
 
+  await step('the finder runs inside the app too, and finds nothing outside its own invented bank', async () => {
+    await page.click('#find-start');
+    await page.waitForSelector('#find-query');
+    const titles = await page.$$eval('.found h4', heads => heads.map(head => head.textContent));
+    assert.ok(titles.length >= 10, 'the whole bank is listed: ' + titles.length + ' forms');
+    for (const title of titles) assert.match(title, /\(invented form\)$/, title + ' says it is invented');
+    await page.fill('#find-query', 'I moved and need to change my driving licence');
+    await page.waitForFunction(() => document.querySelectorAll('.found').length > 0 && document.querySelectorAll('.found').length < 10, null, { timeout: 15000 });
+    assert.match((await page.$$eval('.found h4', heads => heads.map(head => head.textContent)))[0], /Driver Record Address Change/);
+    await page.fill('#find-query', 'how do I register a hot air balloon on Mars');
+    await page.waitForSelector('#find-nothing');
+    assert.equal(await page.locator('.found').count(), 0, 'a question it cannot answer gets nothing, in the app as on the page');
+    await page.click('#find-leave');
+    await page.waitForSelector('#form-file');
+    // The finder asks nothing of anywhere: nothing it was given reaches the app's data folder either.
+    for (const file of everyFile(data)) for (const word of ['balloon', 'Wabash Mutual', 'hot air']) assert.equal(fs.readFileSync(file, 'latin1').includes(word), false, word + ' is not in ' + path.basename(file));
+    await shot('mac-find');
+  });
+
   await step('on the filled form your name shows by its last characters until you ask; the PDF carries it whole, and is saved where the dialog says', async () => {
     await openForm('form.pdf', '13 blanks found');
     assert.equal(await page.locator('#hand-photo').count(), 0, 'no handwriting reader in the app: it would fetch its model from the web');

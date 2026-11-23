@@ -13,6 +13,7 @@ import { sha256 } from '../lib/hash.js';
 import { browserStore } from '../lib/stores/browser.js';
 import { makeKeeper, MIN_PASSPHRASE } from './keep.js';
 import { exampleMarkup, examplePressed, exampleRefresh, exampleTyped, freshExample, startMarkup } from './example.js';
+import { findMarkup, findPressed, findRefresh, findTyped, freshFind } from './find.js';
 import { shell, tauri, pageStore, vaultStore } from './platform.js';
 
 const app = document.getElementById('app');
@@ -45,10 +46,10 @@ const store = shell ? pageStore({ onProblem: message => { note = 'That could not
 let form = null;          // { name, bytes, hash, pdf, locked, pages: [{ canvas, width, height, pdfPage, angle, scale }] }
 let blanks = [];          // [{ id, page, kind, x0, y0, x1, y1, label, field?, options? }]
 let answers = '', overrides = {}, busy = '', note = '', adding = false, prints = {}, remembered = false, problems = [];
-// Before any form is open the page offers three ways in (example.js): the worked example, your own form, and finding
-// a form in a library that is not built. `example` holds the example while it is being clicked through, and nothing
-// of it is kept: it is invented from end to end, and leaving it throws it away.
-let example = null, finding = false;
+// Before any form is open the page offers three ways in (example.js): the worked example, your own form, and a form
+// found by saying what you are doing (find.js). `example` holds the example while it is being clicked through and
+// `finder` the search while it is open; neither keeps anything, and leaving either throws it away.
+let example = null, finder = null;
 // A saved signature is a PNG picture and nothing else. The browser's storage is shared with every other page at the
 // same site address, so what comes back from it is checked before it is used, and escaped where it is written.
 const asSignature = value => typeof value === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(value) ? value : null;
@@ -182,7 +183,7 @@ const useTemplate = template => {
 };
 
 async function openForm(file) {
-  busy = 'Opening the form…'; note = ''; problems = []; pendingTemplate = null; pendingMark = null; example = null; finding = false; render();
+  busy = 'Opening the form…'; note = ''; problems = []; pendingTemplate = null; pendingMark = null; example = null; finder = null; render();
   try {
     if (shell) await store.ready.catch(() => {});   // the forms remembered in the app's data folder
     const bytes = await file.arrayBuffer(), own = isPdf(file) ? await readFields(bytes) : null;
@@ -245,7 +246,7 @@ async function openFromTemplate(template) {
     return { canvas, width: page.width, height: page.height, pdfPage: null, angle: page.angle };
   }));
   form = { name: template.form.name || 'form from template', bytes: null, hash: template.form.sha256, pdf: false, locked: false, pages };
-  useTemplate(template); remembered = true; prints = {}; merge = null; problems = []; example = null; finding = false;
+  useTemplate(template); remembered = true; prints = {}; merge = null; problems = []; example = null; finder = null;
 }
 
 async function openTemplateFile(file) {
@@ -497,6 +498,7 @@ function render() {
   const model = store.get('handModel', 'small');
   app.classList.toggle('open', Boolean(form));
   app.classList.toggle('example-open', Boolean(!form && example));
+  app.classList.toggle('find-open', Boolean(!form && finder));
   app.innerHTML = '<main><header class="top"><h1>Form Filler</h1><p>Photograph or open a form, write your answers anywhere as plain lines, and get the form back filled in. ' +
     '<b>Everything happens on this device.</b> Nothing is uploaded.</p></header>' +
     (busy ? '<div class="busy" role="status">' + h(busy) + '<div class="bar"><i></i></div></div>' : '') +
@@ -505,7 +507,7 @@ function render() {
     (problems.length ? '<div class="note" role="status"><b>Not everything went in as written:</b><ul>' + problems.map(problem => '<li>' + h(problem) + '</li>').join('') + '</ul></div>' : '') +
     // No form open: the three ways in, or the example being clicked through. The form picker lives inside "Use my own
     // form" there, so a form chosen, dropped or pasted on the first screen opens exactly as it always did.
-    (form ? '' : example ? exampleMarkup(example, h) : startMarkup(h, { finding })) +
+    (form ? '' : example ? exampleMarkup(example, h) : finder ? findMarkup(finder, h) : startMarkup(h)) +
     (form ? '<section class="panel"><h2>1. The form</h2><div class="tools"><label class="pick">Use a different form' +
     '<input id="form-file" type="file" accept="image/*,application/pdf,.pdf"></label><label class="pick small">Open a template<input id="template-file" type="file" accept=".json,application/json"></label></div>' +
     '<p class="hint desk">Or drop a form anywhere on this page, or paste a screenshot of one (⌘V / Ctrl+V).</p>' +
@@ -708,6 +710,7 @@ app.addEventListener('change', event => {
 app.addEventListener('input', event => {
   const target = event.target;
   if (example && exampleTyped(example, target.id, target.value)) exampleRefresh(example, app, h);
+  if (finder && findTyped(finder, target.id, target.value)) findRefresh(finder, app, h);
   if (target.id === 'answers') { answers = target.value; refreshValues(); }
   if (target.dataset.blank && target.type !== 'checkbox' && target.type !== 'radio' && target.tagName !== 'SELECT') { overrides[target.dataset.blank] = target.value; refreshValues(); }
   if (target.dataset.hand) hand.lines[Number(target.dataset.hand)].text = target.value;
@@ -716,11 +719,14 @@ app.addEventListener('toggle', event => { if (event.target.id === 'details-panel
 app.addEventListener('click', event => {
   const target = event.target.closest('button');
   if (!target) return;
-  // The first screen and the example. "Find a form" has nothing to search: it says so where it stands.
-  if (target.id === 'example-start') { example = freshExample(); finding = false; note = ''; render(); }
+  // The first screen, the example, and the finder. Each of the three ways in takes the screen while it is open, and
+  // leaving one brings the three choices back with nothing kept.
+  if (target.id === 'example-start') { example = freshExample(); finder = null; note = ''; render(); }
   if (target.id === 'example-leave') { example = null; render(); }
-  if (target.id === 'example-find') { finding = true; render(); }
+  if (target.id === 'find-start') { finder = freshFind(); example = null; note = ''; render(); }
+  if (target.id === 'find-leave') { finder = null; render(); }
   if (example && examplePressed(example, target.id)) render();
+  if (finder && findPressed(finder, target.id)) render();
   if (target.id === 'add-mode') { adding = !adding; render(); }
   if (target.dataset.remove) { blanks = blanks.filter(blank => String(blank.id) !== target.dataset.remove); remember(); render(); }
   if (target.dataset.sign) openPad(target.dataset.sign);

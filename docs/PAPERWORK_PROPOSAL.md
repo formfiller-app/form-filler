@@ -104,7 +104,7 @@ history and professional credentials, each kept **with the document that proves 
 - **The check that would prove it**: a licence put in, backed up, restored on an empty machine, and shared three
   ways (number; number and expiry; with the scan), with the share showing exactly what it is about to give.
 
-## Slice 4: a library of forms
+## Slice 4: a library of forms (its finder built, 2026-11-22)
 
 Government, tax, court, medical and bank forms, found by saying what you are doing.
 
@@ -112,6 +112,13 @@ Government, tax, court, medical and bank forms, found by saying what you are doi
 handful. But the count is not what makes it good. The two things it must be excellent at are **finding the form that
 is current** and **taking a form in** (slice 2). A wide library that serves a stale form is worse than a narrow one
 that always lands the person on today's version, or hands them straight back to the upload door.
+
+**Built on the owner's go, the same day**: `src/app/find-words.js` holds a bank of twelve invented forms and the
+matching; `src/app/find.js` is the screen over it; `tests/find.test.js` has eleven checks and both walks walk it. The
+matching uses no model, a question it cannot answer returns nothing, and the bar rises with the length of the
+question, so a long question is never answered by a form that shares one word with it. A form checked longer ago than
+the 180 days promised is marked as such on its own card. What is **not** built is the thing below: a real list, and
+somebody to keep it current.
 
 So the shape changes: the library is a **finder**, not a warehouse. It may hold many entries, and an entry may be no
 more than an issuer, the words people use for the form, where it applies, when it was last checked and a link to the
@@ -209,10 +216,10 @@ Two rules this direction must not quietly break:
 ## Order of work, and what to do first
 
 1. **Slice 1, the example** — built; waiting on the owner's go to reach `main` and the published page.
-2. **Slice 4's smallest half, the finder's shape** — invented forms with issuer, where it applies and when checked,
-   and plain-word search over them, so the third choice on the first screen stops saying "not built". Written as
-   data, so a real list can replace the invented one without touching the code. This is one of the owner's two
-   priorities, and the search must stay model-free (see above).
+2. **Slice 4's smallest half, the finder's shape** — built 2026-11-22: twelve invented forms with issuer, where it
+   applies and when checked, and plain-word search over them, so the third choice on the first screen no longer says
+   "not built". Written as data, so a real list can replace the invented one without touching the code. The search
+   is model-free, as the rule above requires. What remains of this slice is a real list and its upkeep.
 3. **Slice 3, the vault's records** — the data model written down and reviewed first.
 4. **Slice 2's remaining doors** — link and watched folder, in the Mac app.
 5. **Slice 5, packets** — only after 3 and 4, since a packet is a list of library forms and vault fields.
