@@ -26,12 +26,19 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
 const ANSWERS = 'Jane Roe. 11/13/2026. Respiratory Care\nVentilator. VNT-2219. 1\nOximeter. OX-77. 2\n-. x\nReturn by Friday. J. R. Smith';
 // The invented passphrase the walk locks the invented details with, and the recovery key the page gives back.
 const PASSPHRASE = 'invented horse battery staple';
+// Making the vault, opening it, and refusing a wrong passphrase each derive a key at age's own work factor, which is
+// deliberately slow: about half a second on a developer's Mac. A shared CI runner under load takes very much longer,
+// and Playwright's own 30-second default is not enough room for it — on 2026-11-23 the step below timed out on
+// GitHub's Linux runner on a tree that passed twice elsewhere (runs 45111883249 and 45112425421). So every wait that
+// sits behind one of those derivations waits this long instead. Waits that do not are left short, so a page that is
+// really broken still says so quickly.
+const VAULT = { timeout: 120000 };
 let recoveryKey = '';
 // A page unlocked again, once Lock now in another tab has locked it too (it locks every tab).
 const unlockAgain = async (target, secret) => {
   await target.waitForSelector('#unlock-secret');
   await target.fill('#unlock-secret', secret); await target.click('#unlock');
-  await target.waitForSelector('[name=detail-fullName]');
+  await target.waitForSelector('[name=detail-fullName]', VAULT);
 };
 // What this browser holds for the page: localStorage as text, and each file of the vault in IndexedDB as text.
 const held = target => target.evaluate(async () => ({
@@ -295,7 +302,7 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
     await page.fill('[name=detail-fullName]', 'Jane Roe');
     await page.fill('[name=passphrase]', PASSPHRASE); await page.fill('[name=passphrase-again]', PASSPHRASE);
     await page.click('#save-details');
-    recoveryKey = (await (await page.waitForSelector('#recovery-key code')).innerText()).replace(/\s+/g, '');
+    recoveryKey = (await (await page.waitForSelector('#recovery-key code', VAULT)).innerText()).replace(/\s+/g, '');
     assert.match(recoveryKey, /^AGE-SECRET-KEY-1[02-9AC-HJ-NP-Z]{58}$/, 'the recovery key is shown once');
     await page.click('#key-kept');
     await page.check('#use-details');
@@ -322,14 +329,14 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
       await again.waitForSelector('#unlock-secret');
       assert.equal(await again.locator('[name=detail-fullName]').count(), 0, 'locked: no detail on the page');
       await again.fill('#unlock-secret', 'not the passphrase'); await again.click('#unlock');
-      await again.waitForFunction(() => /does not open your details/.test(document.body.innerText));
+      await again.waitForFunction(() => /does not open your details/.test(document.body.innerText), null, VAULT);
       await again.fill('#unlock-secret', PASSPHRASE); await again.press('#unlock-secret', 'Enter');
-      await again.waitForSelector('[name=detail-fullName]');
+      await again.waitForSelector('[name=detail-fullName]', VAULT);
       assert.equal(await again.inputValue('[name=detail-fullName]'), 'Jane Roe');
       await again.click('#lock-now');
       await again.waitForSelector('#unlock-secret');
       await again.fill('#unlock-secret', recoveryKey.toLowerCase()); await again.click('#unlock');
-      await again.waitForSelector('[name=detail-fullName]');
+      await again.waitForSelector('[name=detail-fullName]', VAULT);
       assert.equal(await again.inputValue('[name=detail-fullName]'), 'Jane Roe', 'the recovery key opens them too');
     } finally { await again.close(); }
     await unlockAgain(page, PASSPHRASE);   // Lock now there locked this page too
@@ -364,7 +371,7 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
       await again.waitForSelector('#unlock-secret');
       assert.equal(await again.locator('img.saved-sign').count(), 0, 'not shown while locked');
       await again.fill('#unlock-secret', PASSPHRASE); await again.click('#unlock');
-      await again.waitForSelector('img.saved-sign');
+      await again.waitForSelector('img.saved-sign', VAULT);
       await again.click('#forget-signature');
       await again.waitForFunction(() => !document.querySelector('img.saved-sign') && /saved signature is forgotten/.test(document.body.innerText));
       const kept = await held(again);
@@ -372,7 +379,7 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
       await again.reload();
       await again.waitForSelector('#unlock-secret');
       await again.fill('#unlock-secret', PASSPHRASE); await again.click('#unlock');
-      await again.waitForSelector('[name=detail-fullName]');
+      await again.waitForSelector('[name=detail-fullName]', VAULT);
       assert.equal(await again.locator('img.saved-sign').count(), 0, 'and it does not come back');
       assert.equal(await again.inputValue('[name=detail-fullName]'), 'Jane Roe', 'your details are as they were');
     } finally { await again.close(); }
@@ -383,18 +390,18 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
       await again.goto(origin);
       await again.waitForSelector('#unlock-secret');
       await again.fill('#unlock-secret', PASSPHRASE); await again.click('#unlock');
-      await again.waitForSelector('[name=detail-fullName]');
+      await again.waitForSelector('[name=detail-fullName]', VAULT);
       await again.locator('#details-panel details.more summary').click();
       await again.fill('[name=passphrase-change]', changed); await again.fill('[name=passphrase-change-again]', changed);
       await again.click('#change-passphrase');
-      await again.waitForFunction(() => /passphrase is changed/.test(document.body.innerText));
+      await again.waitForFunction(() => /passphrase is changed/.test(document.body.innerText), null, VAULT);
       assert.equal((await held(again)).files.some(([name]) => name === 'identity.age.prev'), false);
       for (const [secret, opens] of [[PASSPHRASE, false], [changed, true], [recoveryKey, true]]) {
         if (await again.locator('#lock-now').count()) await again.click('#lock-now');
         await again.waitForSelector('#unlock-secret');
         await again.fill('#unlock-secret', secret); await again.click('#unlock');
-        if (opens) await again.waitForSelector('[name=detail-fullName]');
-        else await again.waitForFunction(() => /does not open your details/.test(document.body.innerText));
+        if (opens) await again.waitForSelector('[name=detail-fullName]', VAULT);
+        else await again.waitForFunction(() => /does not open your details/.test(document.body.innerText), null, VAULT);
       }
     } finally { await again.close(); }
     await unlockAgain(page, changed);
@@ -692,7 +699,7 @@ const today = (() => { const date = new Date(); return String(date.getMonth() + 
       assert.match(await other.locator('#details-panel').innerText(), /An earlier version of this page kept these details in this browser in plain text/);
       await other.fill('[name=passphrase]', PASSPHRASE); await other.fill('[name=passphrase-again]', PASSPHRASE);
       await other.click('#save-details');
-      await other.waitForSelector('#recovery-key');
+      await other.waitForSelector('#recovery-key', VAULT);
       const kept = await held(other);
       assert.ok(!/ff:profile|ff:signature|example\.org/.test(kept.plain), 'the plain copies are gone: ' + kept.plain);
       assert.ok(kept.files.every(([, data]) => !data.includes('example.org')), 'and the vault holds them locked');

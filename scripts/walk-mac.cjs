@@ -438,7 +438,9 @@ const PAGE_SIDE = () => {
   await step('forgetting everything kept here removes the vault and its folder, and leaves the archive and the backups', async () => {
     await openDetails();
     await page.fill('#unlock-secret', PASSPHRASE); await page.click('#unlock');
-    await page.waitForSelector('#forget-details');
+    // Opening the vault derives a key at age's own work factor, so this one waits as says() does rather than
+    // relying on Playwright's 30-second default: see the note beside VAULT in walk.cjs.
+    await page.waitForSelector('#forget-details', { timeout: 120000 });
     await page.click('#forget-details');
     assert.match(await page.locator('#details-panel .warn').innerText(), /every document in your locker from this Mac for good/);
     await page.click('#forget-yes');
